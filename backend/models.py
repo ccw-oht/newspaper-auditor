@@ -1,0 +1,34 @@
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy.orm import relationship, declarative_base
+from datetime import datetime
+
+Base = declarative_base()
+
+class Paper(Base):
+    __tablename__ = "papers"
+    id = Column(Integer, primary_key=True, index=True)
+    state = Column(String)
+    city = Column(String)
+    paper_name = Column(String)
+    website_url = Column(String, unique=True, index=True)
+    phone = Column(String)
+    mailing_address = Column(String)
+    county = Column(String)
+
+    audits = relationship("Audit", back_populates="paper")
+
+class Audit(Base):
+    __tablename__ = "audits"
+    id = Column(Integer, primary_key=True, index=True)
+    paper_id = Column(Integer, ForeignKey("papers.id"))
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    has_pdf = Column(String)
+    pdf_only = Column(String)
+    paywall = Column(String)
+    notices = Column(String)
+    responsive = Column(String)
+    sources = Column(String)
+    notes = Column(String)
+
+    paper = relationship("Paper", back_populates="audits")
