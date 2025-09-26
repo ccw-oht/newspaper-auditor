@@ -1,6 +1,8 @@
-import requests
-import pandas as pd
+import argparse
 import os
+
+import pandas as pd
+import requests
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 
@@ -97,10 +99,12 @@ def detect_chain(homepage_html):
 
 def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
     sources, notes = [], []
-    has_pdf = "No"
+    has_pdf = "Manual Review"
     pdf_only = "Manual Review"
+    data_observed = False
 
     if homepage_html:
+        data_observed = True
         soup = BeautifulSoup(homepage_html, "html.parser")
         pdf_links = [a["href"] for a in soup.find_all("a", href=True) if a["href"].endswith(".pdf")]
         if pdf_links:
@@ -109,12 +113,14 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
             sources.append("Homepage")
 
     if sitemap_data["used"]:
+        data_observed = True
         if sitemap_data["pdf_ratio"] > 0:
             has_pdf = "Yes"
             notes.append(f"Sitemap shows {sitemap_data['pdf_ratio']:.0%} PDF URLs")
         sources.append("Sitemap")
 
     if rss_data["feed_found"]:
+        data_observed = True
         sources.append("RSS")
         notes.append("RSS present (indicates article content)")
 
@@ -125,8 +131,11 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
     elif has_pdf == "Yes" and not rss_data["feed_found"] and sitemap_data["pdf_ratio"] > 0.8:
         pdf_only = "Yes"
         notes.append("PDF-only: Sitemap dominated by PDFs and no RSS")
-    else:
+    elif data_observed:
         pdf_only = "No"
+
+    if data_observed and has_pdf == "Manual Review":
+        has_pdf = "No"
 
     return has_pdf, pdf_only, sources, notes
 
@@ -248,11 +257,32 @@ def process_csv(input_file, force=False):
     base = os.path.splitext(os.path.basename(input_file))[0]
     out_file = f"{base}_Audit.csv"
 
-    if os.path.exists(out_file) and not force:
-        print(f"🔄 Resuming audit from cache: {out_file}")
-        df = pd.read_csv(out_file)
-    elif os.path.exists(out_file) and force:
-        print(f"⚠️ Overwriting existing audit file: {out_file}")
+    if os.path.exists(out_file):
+        if force:
+            print(f"⚠️ Overwriting existing audit file: {out_file}")
+        else:
+            print(f"🔄 Resuming audit from cache: {out_file}")
+            cached_df = pd.read_csv(out_file)
+            merge_key = None
+            for candidate in ["Website Url", "Paper Name"]:
+                if candidate in df.columns and candidate in cached_df.columns:
+                    merge_key = candidate
+                    break
+
+            if merge_key:
+                cache_map = cached_df.set_index(merge_key)
+                shared_columns = [col for col in audit_columns if col in cache_map.columns]
+                for idx, row in df.iterrows():
+                    key_val = row.get(merge_key)
+                    if pd.isna(key_val) or key_val not in cache_map.index:
+                        continue
+                    for col in shared_columns:
+                        df.at[idx, col] = cache_map.at[key_val, col]
+            else:
+                shared_columns = [col for col in audit_columns if col in cached_df.columns]
+                rows_to_copy = min(len(df), len(cached_df))
+                if rows_to_copy:
+                    df.loc[:rows_to_copy - 1, shared_columns] = cached_df.loc[:rows_to_copy - 1, shared_columns].values
 
     total = len(df)
     for idx, row in df.iterrows():
@@ -274,3 +304,20 @@ def process_csv(input_file, force=False):
     
 def run_audit(url: str):
     return quick_audit(url)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Audit newspaper websites from a CSV input")
+    parser.add_argument("input_csv", help="Path to the CSV file containing newspaper records")
+    parser.add_argument("--force", action="store_true", help="Re-run audits even if cached results exist")
+    args = parser.parse_args()
+
+    input_path = args.input_csv
+    if not os.path.exists(input_path):
+        parser.error(f"Input file not found: {input_path}")
+
+    process_csv(input_path, force=args.force)
+
+
+if __name__ == "__main__":
+    main()
