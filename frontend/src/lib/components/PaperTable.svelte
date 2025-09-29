@@ -1,4 +1,5 @@
 <script lang="ts">
+  /* eslint-env browser */
   import type { PaperSummary } from '$lib/types';
   import { createEventDispatcher } from 'svelte';
   import { formatRelativeTime } from '$lib/formatters';
@@ -8,18 +9,46 @@
   export let limit = 50;
   export let offset = 0;
   export let loading = false;
+  export let selected: number[] = [];
 
   const dispatch = createEventDispatcher<{
     audit: { id: number };
     paginate: { offset: number };
+    select: { id: number; checked: boolean };
+    selectAll: { ids: number[]; checked: boolean };
   }>();
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const currentPage = Math.floor(offset / limit) + 1;
 
+  let selectAllCheckbox: HTMLInputElement | null = null;
+  let selectedSet = new Set<number>();
+
+  $: selectedSet = new Set(selected);
+  $: allVisibleSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
+  $: someSelected = items.some((item) => selectedSet.has(item.id));
+  $: {
+    if (selectAllCheckbox) {
+      selectAllCheckbox.indeterminate = someSelected && !allVisibleSelected;
+    }
+  }
+
   function goToPage(page: number) {
     const target = Math.max(1, Math.min(totalPages, page));
     dispatch('paginate', { offset: (target - 1) * limit });
+  }
+
+  function onSelect(id: number, checked: boolean) {
+    dispatch('select', { id, checked });
+  }
+
+  function onSelectAll(checked: boolean) {
+    dispatch('selectAll', { ids: items.map((item) => item.id), checked });
+  }
+
+  function extractChecked(event: Event): boolean {
+    const target = event.currentTarget as HTMLInputElement | null;
+    return target?.checked ?? false;
   }
 </script>
 
@@ -27,6 +56,15 @@
   <table>
     <thead>
       <tr>
+        <th class="select">
+          <input
+            type="checkbox"
+            bind:this={selectAllCheckbox}
+            checked={allVisibleSelected && items.length > 0}
+            on:change={(event) => onSelectAll(extractChecked(event))}
+            aria-label="Select visible papers"
+          />
+        </th>
         <th>Paper</th>
         <th>City</th>
         <th>State</th>
@@ -44,11 +82,19 @@
     <tbody>
       {#if items.length === 0}
         <tr>
-          <td colspan="12" class="empty">No results</td>
+          <td colspan="13" class="empty">No results</td>
         </tr>
       {:else}
         {#each items as item}
           <tr>
+            <td class="select">
+              <input
+                type="checkbox"
+                checked={selectedSet.has(item.id)}
+                on:change={(event) => onSelect(item.id, extractChecked(event))}
+                aria-label={`Select ${item.paper_name ?? 'paper'}`}
+              />
+            </td>
             <td>
               <a class="paper-link" href={`/papers/${item.id}`}>{item.paper_name ?? '—'}</a>
             </td>
@@ -121,6 +167,12 @@
     padding: 0.75rem;
     border-bottom: 1px solid #e5e7eb;
     font-size: 0.9rem;
+  }
+
+  th.select,
+  td.select {
+    width: 3rem;
+    text-align: center;
   }
 
   a.paper-link {

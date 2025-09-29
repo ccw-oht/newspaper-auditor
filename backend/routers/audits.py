@@ -17,34 +17,6 @@ def get_db():
     finally:
         db.close()
 
-@router.post("/{paper_id}", response_model=schemas.AuditOut)
-def audit_one(paper_id: int, db: Session = Depends(get_db)):
-    paper = db.get(Paper, paper_id)
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-
-    results = run_audit(paper.website_url)
-
-    audit = Audit(
-        paper_id=paper.id,
-        has_pdf=results["Has PDF Edition?"],
-        pdf_only=results["PDF-Only?"],
-        paywall=results["Paywall?"],
-        notices=results["Free Public Notices?"],
-        responsive=results["Mobile Responsive?"],
-        sources=results["Audit Sources"],
-        notes=results["Audit Notes"],
-        homepage_html=results.get("Homepage HTML"),
-        chain_owner=results.get("Chain Owner"),
-        cms_vendor=results.get("CMS Vendor"),
-        timestamp=datetime.utcnow()
-    )
-    db.add(audit)
-    db.commit()
-    db.refresh(audit)
-    return audit
-
-
 @router.post("/batch", response_model=list[schemas.AuditOut])
 def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db)):
     if not payload.ids:
@@ -89,3 +61,31 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
         db.refresh(audit)
 
     return audits
+
+
+@router.post("/{paper_id}", response_model=schemas.AuditOut)
+def audit_one(paper_id: int, db: Session = Depends(get_db)):
+    paper = db.get(Paper, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    results = run_audit(paper.website_url)
+
+    audit = Audit(
+        paper_id=paper.id,
+        has_pdf=results["Has PDF Edition?"],
+        pdf_only=results["PDF-Only?"],
+        paywall=results["Paywall?"],
+        notices=results["Free Public Notices?"],
+        responsive=results["Mobile Responsive?"],
+        sources=results["Audit Sources"],
+        notes=results["Audit Notes"],
+        homepage_html=results.get("Homepage HTML"),
+        chain_owner=results.get("Chain Owner"),
+        cms_vendor=results.get("CMS Vendor"),
+        timestamp=datetime.utcnow()
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(audit)
+    return audit

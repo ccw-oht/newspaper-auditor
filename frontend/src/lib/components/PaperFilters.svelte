@@ -15,8 +15,7 @@
     responsive: values.responsive ?? '',
     chain_owner: values.chain_owner ?? '',
     cms_vendor: values.cms_vendor ?? '',
-    q: values.q ?? '',
-    limit: String(values.limit ?? 50)
+    q: values.q ?? ''
   };
 
   const auditOptions = ['', 'Yes', 'No', 'Manual Review'];
@@ -31,8 +30,7 @@
       responsive: local.responsive || undefined,
       chain_owner: local.chain_owner || undefined,
       cms_vendor: local.cms_vendor || undefined,
-      q: local.q || undefined,
-      limit: Number(local.limit) || 50
+      q: local.q || undefined
     });
   }
 
@@ -46,8 +44,7 @@
       responsive: '',
       chain_owner: '',
       cms_vendor: '',
-      q: '',
-      limit: '50'
+      q: ''
     };
     dispatch('reset');
   }
@@ -114,14 +111,6 @@
     <label>
       CMS Vendor
       <input bind:value={local.cms_vendor} placeholder="e.g. WordPress" />
-    </label>
-    <label>
-      Page Size
-      <select bind:value={local.limit}>
-        <option value="25">25</option>
-        <option value="50">50</option>
-        <option value="100">100</option>
-      </select>
     </label>
   </div>
 
