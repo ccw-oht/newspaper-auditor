@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from routers import papers, audits
-from database import Base, engine
+from .routers import papers, audits
+from .database import Base, engine
 
 # Create DB tables on startup
 Base.metadata.create_all(bind=engine)

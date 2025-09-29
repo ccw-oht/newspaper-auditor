@@ -1,19 +1,20 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
-Base = declarative_base()
+from .database import Base
 
 class Paper(Base):
     __tablename__ = "papers"
     id = Column(Integer, primary_key=True, index=True)
     state = Column(String)
-    city = Column(String)
-    paper_name = Column(String)
-    website_url = Column(String, unique=True, index=True)
+    city = Column(String, nullable=False)
+    paper_name = Column(String, nullable=False)
+    website_url = Column(String, index=True)
     phone = Column(String)
     mailing_address = Column(String)
     county = Column(String)
+    extra_data = Column(JSON, default=dict)
 
     audits = relationship("Audit", back_populates="paper")
 

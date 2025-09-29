@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from database import SessionLocal
-from models import Paper
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
+
+from .. import schemas
+from ..database import SessionLocal
+from ..models import Paper
 
 router = APIRouter()
 
@@ -12,6 +15,8 @@ def get_db():
     finally:
         db.close()
 
-@router.get("/")
+@router.get("/", response_model=list[schemas.PaperOut])
 def list_papers(db: Session = Depends(get_db)):
-    return db.query(Paper).all()
+    stmt = select(Paper).options(selectinload(Paper.audits))
+    result = db.execute(stmt)
+    return result.scalars().all()
