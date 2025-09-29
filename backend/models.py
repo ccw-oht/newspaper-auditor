@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -31,5 +31,6 @@ class Audit(Base):
     responsive = Column(String)
     sources = Column(String)
     notes = Column(String)
+    homepage_html = Column(Text)
 
     paper = relationship("Paper", back_populates="audits")

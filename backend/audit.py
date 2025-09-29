@@ -10,6 +10,20 @@ import xml.etree.ElementTree as ET
 paywall_keywords = ["subscribe", "paywall", "metered", "membership", "premium", "registration"]
 public_notice_keywords = ["public notice", "legal notice", "legals", "notices", "classifieds", "obituaries"]
 
+# Snapshot limits
+MAX_SNAPSHOT_CHARS = 200_000
+
+# Helper utilities
+def sanitize_homepage_snapshot(html: str | None, max_chars: int = MAX_SNAPSHOT_CHARS) -> str | None:
+    if not html:
+        return None
+
+    cleaned = html.strip().replace("\x00", "")  # guard against null bytes in HTML
+    if len(cleaned) > max_chars:
+        return cleaned[:max_chars]
+    return cleaned
+
+
 # Helper: fetch a URL safely
 def fetch_url(url, timeout=6):
     try:
@@ -212,7 +226,8 @@ def quick_audit(url):
         "Free Public Notices?": "Manual Review",
         "Mobile Responsive?": "Manual Review",
         "Audit Sources": "",
-        "Audit Notes": ""
+        "Audit Notes": "",
+        "Homepage HTML": None,
     }
 
     if not isinstance(url, str) or not url.strip():
@@ -241,7 +256,8 @@ def quick_audit(url):
         "Free Public Notices?": notices,
         "Mobile Responsive?": responsive,
         "Audit Sources": "+".join(set(all_sources)) if all_sources else "None",
-        "Audit Notes": " | ".join(all_notes) if all_notes else ""
+        "Audit Notes": " | ".join(all_notes) if all_notes else "",
+        "Homepage HTML": sanitize_homepage_snapshot(homepage_html),
     })
 
     return audit
