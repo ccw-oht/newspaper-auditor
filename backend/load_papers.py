@@ -17,7 +17,7 @@ COLUMN_ALIASES: Dict[str, Iterable[str]] = {
     "state": ["state"],
     "city": ["city"],
     "paper_name": ["paper name", "name"],
-    "website_url": ["website url", "url", "site"],
+    "website_url": ["website url", "url", "site", "website"],
     "phone": ["phone", "phone number"],
     "mailing_address": ["mailing address", "address"],
     "county": ["county"],
