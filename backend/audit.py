@@ -7,32 +7,70 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 
 # Keywords/signals
-paywall_keywords = ["subscribe", "paywall", "metered", "membership", "premium", "registration"]
-public_notice_keywords = ["public notice", "legal notice", "legals", "notices", "classifieds", "obituaries"]
+paywall_keywords = [
+    "subscribe",
+    "paywall",
+    "metered",
+    "membership",
+    "premium",
+    "registration",
+]
+public_notice_keywords = [
+    "public notice",
+    "legal notice",
+    "legals",
+    "notices",
+    "classifieds",
+    "obituaries",
+]
+pdf_homepage_keywords = [
+    "e-edition",
+    "eedition",
+    "e edition",
+    "epaper",
+    "e-paper",
+    "digital edition",
+    "digital replica",
+    "replica edition",
+    "enewspaper",
+    "e-newspaper",
+    "printed paper",
+]
+pdf_href_keywords = [
+    "eedition",
+    "epaper",
+    "e-edition",
+    "enewspaper",
+    "digitaledition",
+    "replica",
+    "print-edition",
+]
 
 # Snapshot limits
-MAX_SNAPSHOT_CHARS = 200_000
+MAX_SNAPSHOT_CHARS = 500_000
 
 # Helper utilities
-def sanitize_homepage_snapshot(html: str | None, max_chars: int = MAX_SNAPSHOT_CHARS) -> str | None:
+def sanitize_homepage_snapshot(
+    html: str | None, max_chars: int = MAX_SNAPSHOT_CHARS
+) -> tuple[str | None, bool]:
     if not html:
-        return None
+        return None, False
 
     cleaned = html.strip().replace("\x00", "")  # guard against null bytes in HTML
     if len(cleaned) > max_chars:
-        return cleaned[:max_chars]
-    return cleaned
+        return cleaned[:max_chars], True
+    return cleaned, False
 
 
-# Helper: fetch a URL safely
+# Helper: fetch a URL safely, capturing status information
 def fetch_url(url, timeout=6):
     try:
         resp = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
         if resp.status_code == 200:
-            return resp.text
-    except Exception:
-        return None
-    return None
+            return resp.text, resp.status_code, None
+        return None, resp.status_code, None
+    except Exception as exc:
+        return None, None, str(exc)
 
 # Helper: check sitemap.xml
 def check_sitemap(base_url):
@@ -44,8 +82,8 @@ def check_sitemap(base_url):
 
     for path in sitemap_paths:
         sitemap_url = base_url.rstrip("/") + path
-        xml_text = fetch_url(sitemap_url, timeout=12)
-        if not xml_text:
+        xml_text, status_code, _ = fetch_url(sitemap_url, timeout=12)
+        if status_code != 200 or not xml_text:
             continue
         used = True
 
@@ -77,8 +115,8 @@ def check_rss(base_url):
 
     for path in rss_paths:
         rss_url = base_url.rstrip("/") + path
-        xml_text = fetch_url(rss_url, timeout=6)
-        if not xml_text:
+        xml_text, status_code, _ = fetch_url(rss_url, timeout=6)
+        if status_code != 200 or not xml_text:
             continue
 
         feed_found = True
@@ -120,7 +158,32 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
     if homepage_html:
         data_observed = True
         soup = BeautifulSoup(homepage_html, "html.parser")
-        pdf_links = [a["href"] for a in soup.find_all("a", href=True) if a["href"].endswith(".pdf")]
+        pdf_links = [
+            a["href"]
+            for a in soup.find_all("a", href=True)
+            if a["href"].strip().lower().endswith(".pdf")
+        ]
+        if not pdf_links:
+            pdf_hint_links = []
+            for anchor in soup.find_all("a", href=True):
+                anchor_text = (anchor.get_text() or "").strip().lower()
+                href_lower = anchor["href"].strip().lower()
+                if not anchor_text and not href_lower:
+                    continue
+
+                text_match = any(keyword in anchor_text for keyword in pdf_homepage_keywords)
+                href_match = any(keyword in href_lower for keyword in pdf_href_keywords)
+                if text_match or href_match:
+                    pdf_hint_links.append(anchor["href"])
+
+            if pdf_hint_links:
+                has_pdf = "Yes"
+                notes.append(
+                    "Homepage contains e-edition style link(s): "
+                    + ", ".join(sorted(set(pdf_hint_links))[:3])
+                )
+                sources.append("Homepage")
+
         if pdf_links:
             has_pdf = "Yes"
             notes.append(f"Found {len(pdf_links)} PDF links on homepage")
@@ -236,7 +299,7 @@ def quick_audit(url):
     if not url.startswith("http"):
         url = "http://" + url
 
-    homepage_html = fetch_url(url)
+    homepage_html, homepage_status, homepage_error = fetch_url(url)
     sitemap_data = check_sitemap(url)
     rss_data = check_rss(url)
     chain_detected = detect_chain(homepage_html)
@@ -249,6 +312,20 @@ def quick_audit(url):
     all_sources = pdf_sources + paywall_sources + notice_sources + resp_sources
     all_notes = pdf_notes + paywall_notes + notice_notes + resp_notes
 
+    sanitized_homepage_html, snapshot_truncated = sanitize_homepage_snapshot(homepage_html)
+
+    if homepage_html is None:
+        if homepage_error:
+            all_notes.append(f"Homepage fetch failed: {homepage_error}")
+        elif homepage_status:
+            all_notes.append(f"Homepage fetch returned HTTP {homepage_status}")
+        else:
+            all_notes.append("Homepage fetch failed (unknown error)")
+    elif snapshot_truncated:
+        all_notes.append(
+            f"Homepage snapshot truncated to {MAX_SNAPSHOT_CHARS:,} characters"
+        )
+
     audit.update({
         "Has PDF Edition?": has_pdf,
         "PDF-Only?": pdf_only,
@@ -257,7 +334,7 @@ def quick_audit(url):
         "Mobile Responsive?": responsive,
         "Audit Sources": "+".join(set(all_sources)) if all_sources else "None",
         "Audit Notes": " | ".join(all_notes) if all_notes else "",
-        "Homepage HTML": sanitize_homepage_snapshot(homepage_html),
+        "Homepage HTML": sanitized_homepage_html,
     })
 
     return audit

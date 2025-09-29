@@ -116,20 +116,24 @@ def list_papers(
     rows = db.execute(stmt).all()
 
     items: list[schemas.PaperSummary] = []
-    for paper, latest_row in rows:
+    for row in rows:
+        mapping = row._mapping  # SQLAlchemy RowMapping
+        paper: Paper = mapping[Paper]
+
+        audit_id = mapping.get("audit_id")
         latest_audit = None
-        if latest_row and latest_row["audit_id"] is not None:
+        if audit_id is not None:
             latest_audit = schemas.AuditSummary(
-                id=latest_row["audit_id"],
-                timestamp=latest_row["timestamp"],
-                has_pdf=latest_row["has_pdf"],
-                pdf_only=latest_row["pdf_only"],
-                paywall=latest_row["paywall"],
-                notices=latest_row["notices"],
-                responsive=latest_row["responsive"],
-                sources=latest_row["sources"],
-                notes=latest_row["notes"],
-                homepage_preview=latest_row["homepage_preview"],
+                id=audit_id,
+                timestamp=mapping.get("timestamp"),
+                has_pdf=mapping.get("has_pdf"),
+                pdf_only=mapping.get("pdf_only"),
+                paywall=mapping.get("paywall"),
+                notices=mapping.get("notices"),
+                responsive=mapping.get("responsive"),
+                sources=mapping.get("sources"),
+                notes=mapping.get("notes"),
+                homepage_preview=mapping.get("homepage_preview"),
             )
 
         items.append(

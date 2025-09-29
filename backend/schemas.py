@@ -19,7 +19,7 @@ class AuditOut(BaseModel):
     homepage_html: Optional[str] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class PaperOut(BaseModel):
@@ -35,7 +35,7 @@ class PaperOut(BaseModel):
     audits: List[AuditOut] = Field(default_factory=list)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class AuditBatchRequest(BaseModel):
