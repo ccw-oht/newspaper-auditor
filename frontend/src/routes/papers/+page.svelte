@@ -3,7 +3,7 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { runAudit, runAuditBatch } from '$lib/api';
+  import { runAudit } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
 
@@ -16,6 +16,8 @@
   let loading = false;
   let selectedIds: Set<number> = new Set();
   let pageSize = Number(data.params.limit ?? 50);
+  let progressCurrent = 0;
+  let progressTotal = 0;
 
   $: selectedArray = Array.from(selectedIds);
   $: selectedCount = selectedArray.length;
@@ -87,14 +89,31 @@
 
     try {
       loading = true;
-      await runAuditBatch(selectedArray);
-      await invalidateAll();
-      selectedIds = new Set();
+      progressTotal = selectedArray.length;
+      progressCurrent = 0;
+
+      for (const id of selectedArray) {
+        try {
+          await runAudit(id);
+        } catch (error) {
+          console.error(error);
+          window.alert(`Failed to re-run audit for paper ${id}. Continuing with remaining items.`);
+        }
+
+        progressCurrent += 1;
+        await invalidateAll();
+
+        const next = new Set(selectedIds);
+        next.delete(id);
+        selectedIds = next;
+      }
     } catch (error) {
       console.error(error);
       window.alert('Failed to run batch audit. Check console for details.');
     } finally {
       loading = false;
+      progressCurrent = 0;
+      progressTotal = 0;
     }
   }
 
@@ -129,7 +148,9 @@
     </label>
     <span>{selectedCount} selected</span>
     <button type="button" on:click={handleBatchAudit} disabled={selectedCount === 0 || loading}>
-      {loading ? 'Running…' : 'Re-run selected'}
+      {loading
+        ? `Running…${progressTotal ? ` (${progressCurrent}/${progressTotal})` : ''}`
+        : 'Re-run selected'}
     </button>
   </div>
 
