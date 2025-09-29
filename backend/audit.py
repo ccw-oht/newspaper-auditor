@@ -134,20 +134,59 @@ def check_rss(base_url):
 
 def detect_chain(homepage_html):
     if not homepage_html:
-        return None
+        return "Manual Review", [], ["No homepage HTML available"]
+
     html_lower = homepage_html.lower()
-    if ("part of the usa today network" in html_lower or 
-        "enewspaper" in html_lower or 
-        "usa today" in html_lower or 
-        "gannett" in html_lower):
-        return "Gannett"
-    if "hearst newspapers" in html_lower or "© hearst" in html_lower:
-        return "Hearst"
-    if "lee enterprises" in html_lower:
-        return "Lee"
-    if "cnhi llc" in html_lower or "cnhi media" in html_lower:
-        return "CNHI"
-    return None
+    chain_patterns = {
+        "Gannett": [
+            "part of the usa today network",
+            "enewspaper",
+            "usa today",
+            "gannett",
+        ],
+        "Hearst": ["hearst newspapers", "© hearst", "hearst media"],
+        "Lee": ["lee enterprises", "lee enterprises inc"],
+        "CNHI": ["cnhi llc", "cnhi media"],
+        "McClatchy": ["mcclatchy"],
+        "Ogden": ["ogden newspapers", "ogdennews"],
+        "Adams Publishing": ["adams publishing group", "apgnews"],
+    }
+
+    for chain, tokens in chain_patterns.items():
+        matches = [token for token in tokens if token in html_lower]
+        if matches:
+            note = f"Detected chain indicators ({chain}): {', '.join(matches)}"
+            return chain, ["Homepage"], [note]
+
+    return "Manual Review", [], []
+
+
+def detect_cms(homepage_html, sitemap_data):
+    if not homepage_html:
+        return "Manual Review", [], ["No homepage HTML available"]
+
+    html_lower = homepage_html.lower()
+    cms_patterns = {
+        "TownNews/BLOX": ["tncms", "bloximages", "townnews"],
+        "WordPress": ["wp-content", "wp-includes", "wordpress", "wp-json"],
+        "Circle Media": ["creativecircle", "circle id", "cm.c", "circle-media"],
+        "Drupal": ["drupal.settings", "drupal-settings-json", "drupal"],
+        "Arc XP": ["arc-cdn", "arcpublishing", "thearc", "arc publishing"],
+        "Flatpage/Flatpack": ["flatpage", "flatpack", "wehaa"],
+    }
+
+    for vendor, tokens in cms_patterns.items():
+        matches = [token for token in tokens if token in html_lower]
+        if matches:
+            note = f"Detected CMS indicators ({vendor}): {', '.join(matches)}"
+            return vendor, ["Homepage"], [note]
+
+    sitemap_urls = sitemap_data.get("urls", [])
+    for url in sitemap_urls:
+        if "wp-sitemap" in url:
+            return "WordPress", ["Sitemap"], ["Sitemap contains wp-sitemap entries"]
+
+    return "Manual Review", [], []
 
 def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
     sources, notes = [], []
@@ -291,6 +330,8 @@ def quick_audit(url):
         "Audit Sources": "",
         "Audit Notes": "",
         "Homepage HTML": None,
+        "Chain Owner": "Manual Review",
+        "CMS Vendor": "Manual Review",
     }
 
     if not isinstance(url, str) or not url.strip():
@@ -302,15 +343,31 @@ def quick_audit(url):
     homepage_html, homepage_status, homepage_error = fetch_url(url)
     sitemap_data = check_sitemap(url)
     rss_data = check_rss(url)
-    chain_detected = detect_chain(homepage_html)
+    chain_value, chain_sources, chain_notes = detect_chain(homepage_html)
+    cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)
 
-    has_pdf, pdf_only, pdf_sources, pdf_notes = detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected)
-    paywall, paywall_sources, paywall_notes = detect_paywall(homepage_html, sitemap_data, rss_data, chain_detected)
+    chain_for_rules = None if chain_value == "Manual Review" else chain_value
+
+    has_pdf, pdf_only, pdf_sources, pdf_notes = detect_pdf(
+        homepage_html, sitemap_data, rss_data, chain_for_rules
+    )
+    paywall, paywall_sources, paywall_notes = detect_paywall(
+        homepage_html, sitemap_data, rss_data, chain_for_rules
+    )
     notices, notice_sources, notice_notes = detect_public_notices(homepage_html, sitemap_data, rss_data)
     responsive, resp_sources, resp_notes = detect_responsive(homepage_html)
 
-    all_sources = pdf_sources + paywall_sources + notice_sources + resp_sources
-    all_notes = pdf_notes + paywall_notes + notice_notes + resp_notes
+    all_sources = (
+        pdf_sources
+        + paywall_sources
+        + notice_sources
+        + resp_sources
+        + chain_sources
+        + cms_sources
+    )
+    all_notes = (
+        pdf_notes + paywall_notes + notice_notes + resp_notes + chain_notes + cms_notes
+    )
 
     sanitized_homepage_html, snapshot_truncated = sanitize_homepage_snapshot(homepage_html)
 
@@ -335,6 +392,8 @@ def quick_audit(url):
         "Audit Sources": "+".join(set(all_sources)) if all_sources else "None",
         "Audit Notes": " | ".join(all_notes) if all_notes else "",
         "Homepage HTML": sanitized_homepage_html,
+        "Chain Owner": chain_value,
+        "CMS Vendor": cms_vendor,
     })
 
     return audit
@@ -342,7 +401,17 @@ def quick_audit(url):
 def process_csv(input_file, force=False):
     df = pd.read_csv(input_file)
 
-    audit_columns = ["Has PDF Edition?", "PDF-Only?", "Paywall?", "Free Public Notices?", "Mobile Responsive?", "Audit Sources", "Audit Notes"]
+    audit_columns = [
+        "Has PDF Edition?",
+        "PDF-Only?",
+        "Paywall?",
+        "Free Public Notices?",
+        "Mobile Responsive?",
+        "Chain Owner",
+        "CMS Vendor",
+        "Audit Sources",
+        "Audit Notes",
+    ]
     for col in audit_columns:
         if col not in df.columns:
             df[col] = ""

@@ -17,6 +17,8 @@ class AuditOut(BaseModel):
     sources: Optional[str] = None
     notes: Optional[str] = None
     homepage_html: Optional[str] = None
+    chain_owner: Optional[str] = None
+    cms_vendor: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -53,6 +55,8 @@ class AuditSummary(BaseModel):
     sources: Optional[str] = None
     notes: Optional[str] = None
     homepage_preview: Optional[str] = None
+    chain_owner: Optional[str] = None
+    cms_vendor: Optional[str] = None
 
 
 class PaperSummary(BaseModel):

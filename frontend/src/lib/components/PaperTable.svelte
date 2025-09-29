@@ -35,6 +35,8 @@
         <th>Paywall</th>
         <th>Notices</th>
         <th>Responsive</th>
+        <th>Chain</th>
+        <th>CMS</th>
         <th>Last Audit</th>
         <th></th>
       </tr>
@@ -42,7 +44,7 @@
     <tbody>
       {#if items.length === 0}
         <tr>
-          <td colspan="10" class="empty">No results</td>
+          <td colspan="12" class="empty">No results</td>
         </tr>
       {:else}
         {#each items as item}
@@ -65,6 +67,8 @@
             <td>{item.latest_audit?.paywall ?? '—'}</td>
             <td>{item.latest_audit?.notices ?? '—'}</td>
             <td>{item.latest_audit?.responsive ?? '—'}</td>
+            <td>{item.latest_audit?.chain_owner ?? '—'}</td>
+            <td>{item.latest_audit?.cms_vendor ?? '—'}</td>
             <td>{item.latest_audit?.timestamp ? formatRelativeTime(item.latest_audit.timestamp) : 'Never'}</td>
             <td>
               <button type="button" disabled={loading} on:click={() => dispatch('audit', { id: item.id })}>

@@ -176,6 +176,14 @@
               <dd>{selectedAudit.responsive ?? '—'}</dd>
             </div>
             <div>
+              <dt>Chain owner</dt>
+              <dd>{selectedAudit.chain_owner ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>CMS vendor</dt>
+              <dd>{selectedAudit.cms_vendor ?? '—'}</dd>
+            </div>
+            <div>
               <dt>Sources</dt>
               <dd>{selectedAudit.sources ?? '—'}</dd>
             </div>

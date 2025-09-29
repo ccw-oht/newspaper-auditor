@@ -35,6 +35,8 @@ def audit_one(paper_id: int, db: Session = Depends(get_db)):
         sources=results["Audit Sources"],
         notes=results["Audit Notes"],
         homepage_html=results.get("Homepage HTML"),
+        chain_owner=results.get("Chain Owner"),
+        cms_vendor=results.get("CMS Vendor"),
         timestamp=datetime.utcnow()
     )
     db.add(audit)
@@ -75,6 +77,8 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
             sources=results["Audit Sources"],
             notes=results["Audit Notes"],
             homepage_html=results.get("Homepage HTML"),
+            chain_owner=results.get("Chain Owner"),
+            cms_vendor=results.get("CMS Vendor"),
             timestamp=datetime.utcnow()
         )
         db.add(audit)

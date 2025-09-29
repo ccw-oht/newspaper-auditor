@@ -11,6 +11,8 @@ export interface AuditSummary {
   sources: string | null;
   notes: string | null;
   homepage_preview: string | null;
+  chain_owner: string | null;
+  cms_vendor: string | null;
 }
 
 export interface AuditOut extends AuditSummary {
@@ -18,6 +20,8 @@ export interface AuditOut extends AuditSummary {
   paper_id: number;
   timestamp: string;
   homepage_html: string | null;
+  chain_owner: string | null;
+  cms_vendor: string | null;
 }
 
 export interface PaperSummary {
@@ -70,6 +74,8 @@ export interface PaperListParams {
   paywall?: string;
   notices?: string;
   responsive?: string;
+  chain_owner?: string;
+  cms_vendor?: string;
   q?: string;
   sort?: string;
   order?: 'asc' | 'desc';
@@ -84,6 +90,8 @@ export interface FilterValues {
   paywall?: string;
   notices?: string;
   responsive?: string;
+  chain_owner?: string;
+  cms_vendor?: string;
   q?: string;
   limit?: number;
 }
