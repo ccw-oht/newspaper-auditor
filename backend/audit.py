@@ -335,6 +335,8 @@ def quick_audit(url):
     }
 
     if not isinstance(url, str) or not url.strip():
+        audit["Audit Notes"] = "No website URL provided"
+        audit["Audit Sources"] = "None"
         return audit
 
     if not url.startswith("http"):
@@ -383,6 +385,9 @@ def quick_audit(url):
             f"Homepage snapshot truncated to {MAX_SNAPSHOT_CHARS:,} characters"
         )
 
+    if chain_value == "Gannett":
+        cms_vendor = "Proprietary"
+
     audit.update({
         "Has PDF Edition?": has_pdf,
         "PDF-Only?": pdf_only,
@@ -400,6 +405,20 @@ def quick_audit(url):
 
 def process_csv(input_file, force=False):
     df = pd.read_csv(input_file)
+
+    def _find_url_column(frame: pd.DataFrame) -> str | None:
+        column_lookup = {col.lower(): col for col in frame.columns}
+        candidates = ["website url", "website_url", "url", "site", "website"]
+        for candidate in candidates:
+            if candidate in column_lookup:
+                return column_lookup[candidate]
+        return None
+
+    url_column = _find_url_column(df)
+    if not url_column:
+        raise ValueError(
+            "No website URL column found. Expected one of: 'Website Url', 'URL', 'Site', 'Website'."
+        )
 
     audit_columns = [
         "Has PDF Edition?",
@@ -451,12 +470,15 @@ def process_csv(input_file, force=False):
         if not force and all(str(row.get(col, "")).strip() not in ["", "Manual Review", "Manual Review (Timeout)", "Manual Review (Error)", ""] for col in audit_columns[:-1]):
             continue
 
-        url = row.get("Website Url", "")
+        url_value = row.get(url_column, "")
+        url = url_value if isinstance(url_value, str) else str(url_value or "")
         results = quick_audit(url)
         for col, val in results.items():
             df.loc[idx, col] = val
 
-        print(f"[{idx+1}/{total}] Audited: {row.get('Paper Name', 'Unknown')} ({url}) → Sources: {results['Audit Sources']}")
+        safe_paper = row.get('Paper Name', 'Unknown')
+        display_url = url or 'No URL'
+        print(f"[{idx+1}/{total}] Audited: {safe_paper} ({display_url}) → Sources: {results['Audit Sources']}")
 
         if idx % 5 == 0:
             df.to_csv(out_file, index=False)

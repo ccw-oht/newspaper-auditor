@@ -12,16 +12,5 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
 
-  api:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.api
-    container_name: audit-api
-    restart: always
-    depends_on:
-      - db
-    ports:
-      - "18080:8000"
-
 volumes:
   db_data:
