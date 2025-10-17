@@ -70,16 +70,24 @@
     selectedIds = next;
   }
 
-  function handleSelectAll(event: CustomEvent<{ ids: number[]; checked: boolean }>) {
+  function updateSelection(ids: number[], checked: boolean) {
     const next = new Set(selectedIds);
-    event.detail.ids.forEach((id) => {
-      if (event.detail.checked) {
+    ids.forEach((id) => {
+      if (checked) {
         next.add(id);
       } else {
         next.delete(id);
       }
     });
     selectedIds = next;
+  }
+
+  function handleSelectAll(event: CustomEvent<{ ids: number[]; checked: boolean }>) {
+    updateSelection(event.detail.ids, event.detail.checked);
+  }
+
+  function handleSelectRange(event: CustomEvent<{ ids: number[]; checked: boolean }>) {
+    updateSelection(event.detail.ids, event.detail.checked);
   }
 
   async function handleBatchAudit() {
@@ -162,6 +170,7 @@
     on:audit={handleAudit}
     on:paginate={changePage}
     on:select={handleSelect}
+    on:selectRange={handleSelectRange}
     on:selectAll={handleSelectAll}
     selected={selectedArray}
     {loading}

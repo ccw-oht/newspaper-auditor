@@ -15,6 +15,7 @@
     audit: { id: number };
     paginate: { offset: number };
     select: { id: number; checked: boolean };
+    selectRange: { ids: number[]; checked: boolean };
     selectAll: { ids: number[]; checked: boolean };
   }>();
 
@@ -23,6 +24,8 @@
 
   let selectAllCheckbox: HTMLInputElement | null = null;
   let selectedSet = new Set<number>();
+  let lastToggledIndex: number | null = null;
+  let itemsFingerprint: string | null = null;
 
   $: selectedSet = new Set(selected);
   $: allVisibleSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
@@ -38,8 +41,32 @@
     dispatch('paginate', { offset: (target - 1) * limit });
   }
 
-  function onSelect(id: number, checked: boolean) {
-    dispatch('select', { id, checked });
+  $: if (lastToggledIndex !== null && (lastToggledIndex < 0 || lastToggledIndex >= items.length)) {
+    lastToggledIndex = null;
+  }
+
+  $: {
+    const currentFingerprint = items.map((item) => item.id).join(',');
+    if (currentFingerprint !== itemsFingerprint) {
+      itemsFingerprint = currentFingerprint;
+      lastToggledIndex = null;
+    }
+  }
+
+  function handleItemClick(event: MouseEvent, id: number, index: number) {
+    const target = event.currentTarget as HTMLInputElement | null;
+    const checked = target?.checked ?? false;
+
+    if (event.shiftKey && lastToggledIndex !== null) {
+      const start = Math.min(lastToggledIndex, index);
+      const end = Math.max(lastToggledIndex, index);
+      const rangeIds = items.slice(start, end + 1).map((item) => item.id);
+      dispatch('selectRange', { ids: rangeIds, checked });
+    } else {
+      dispatch('select', { id, checked });
+    }
+
+    lastToggledIndex = index;
   }
 
   function onSelectAll(checked: boolean) {
@@ -85,13 +112,13 @@
           <td colspan="13" class="empty">No results</td>
         </tr>
       {:else}
-        {#each items as item}
+        {#each items as item, index}
           <tr>
             <td class="select">
               <input
                 type="checkbox"
                 checked={selectedSet.has(item.id)}
-                on:change={(event) => onSelect(item.id, extractChecked(event))}
+                on:click={(event) => handleItemClick(event, item.id, index)}
                 aria-label={`Select ${item.paper_name ?? 'paper'}`}
               />
             </td>
