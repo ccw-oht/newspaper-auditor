@@ -57,6 +57,12 @@ make dev-frontend
 
 The first run installs frontend dependencies under `frontend/`. A Vite/SvelteKit dev server starts (default at `http://localhost:5173/`) and hot reloads on file changes.
 
+### CSV Import Preview
+
+- The API exposes `/imports/preview` and `/imports/commit` for CSV ingestion.
+- A UI is available at `http://localhost:5173/imports` to upload a CSV, review staged rows, choose actions (insert/overwrite/merge/skip), and commit changes.
+- When running commands manually, ensure `python-multipart` is installed (`pip install python-multipart`).
+
 ## Database Utilities
 
 Enter Postgres shell:

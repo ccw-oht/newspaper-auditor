@@ -1,4 +1,13 @@
-import type { PaperListParams, PaperListResponse, PaperDetail, PaperUpdatePayload, AuditOut } from '$lib/types';
+import type {
+  PaperListParams,
+  PaperListResponse,
+  PaperDetail,
+  PaperUpdatePayload,
+  AuditOut,
+  ImportPreviewResponse,
+  ImportCommitRequest,
+  ImportCommitResult
+} from '$lib/types';
 import { API_BASE_URL } from './config';
 
 type FetchLike = typeof fetch;
@@ -79,5 +88,28 @@ export async function runAuditBatch(ids: number[], fetchImpl?: FetchLike): Promi
     fetchImpl,
     method: HttpMethod.POST,
     body: JSON.stringify({ ids })
+  });
+}
+
+export async function previewImport(file: File, fetchImpl?: FetchLike): Promise<ImportPreviewResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const fetcher = fetchImpl ?? fetch;
+  const response = await fetcher(`${API_BASE_URL}/imports/preview`, {
+    method: HttpMethod.POST,
+    body: formData
+  });
+  if (!response.ok) {
+    const message = await safeErrorMessage(response);
+    throw new Error(message);
+  }
+  return response.json();
+}
+
+export async function commitImport(payload: ImportCommitRequest, fetchImpl?: FetchLike): Promise<ImportCommitResult> {
+  return request<ImportCommitResult>(`/imports/commit`, {
+    fetchImpl,
+    method: HttpMethod.POST,
+    body: JSON.stringify(payload)
   });
 }

@@ -162,6 +162,10 @@
     <p class="subtitle">Filter newspapers, review audit status, and trigger updates.</p>
   </section>
 
+  <div class="import-link">
+    <button type="button" on:click={() => goto('/imports')}>Import CSV</button>
+  </div>
+
   <PaperFilters
     values={data.params}
     options={data.response.options}
@@ -221,12 +225,27 @@
     margin-top: 0.25rem;
   }
 
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 1rem;
-  }
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+}
+
+.import-link {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.import-link button {
+  padding: 0.55rem 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  background-color: #22c55e;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
 
   .actions span {
     color: #4b5563;

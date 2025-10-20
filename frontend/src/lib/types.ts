@@ -110,3 +110,43 @@ export interface PaperListOptions {
   cmsPlatforms: string[];
   cmsVendors: string[];
 }
+
+export interface ImportPreviewRow {
+  temp_id: string;
+  status: string;
+  allowed_actions: string[];
+  data: Record<string, unknown>;
+  existing: Record<string, unknown> | null;
+  differences: Record<string, { old: unknown; new: unknown }>;
+  issues: string[];
+}
+
+export interface ImportPreviewSummary {
+  new: number;
+  update: number;
+  duplicate: number;
+  invalid: number;
+}
+
+export interface ImportPreviewResponse {
+  rows: ImportPreviewRow[];
+  summary: ImportPreviewSummary;
+}
+
+export interface ImportCommitRow {
+  temp_id: string;
+  action: string;
+  data: Record<string, unknown>;
+  existing_id?: number | null;
+  status?: string | null;
+}
+
+export interface ImportCommitRequest {
+  rows: ImportCommitRow[];
+}
+
+export interface ImportCommitResult {
+  inserted: number;
+  updated: number;
+  skipped: number;
+}
