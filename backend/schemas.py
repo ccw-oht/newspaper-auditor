@@ -74,9 +74,18 @@ class PaperSummary(BaseModel):
     latest_audit: Optional[AuditSummary] = None
 
 
+class PaperListOptions(BaseModel):
+    states: List[str] = Field(default_factory=list)
+    cities: List[str] = Field(default_factory=list)
+    chainOwners: List[str] = Field(default_factory=list)
+    cmsPlatforms: List[str] = Field(default_factory=list)
+    cmsVendors: List[str] = Field(default_factory=list)
+
+
 class PaperListResponse(BaseModel):
     total: int
     items: List[PaperSummary]
+    options: PaperListOptions
 
 
 class PaperDetail(BaseModel):

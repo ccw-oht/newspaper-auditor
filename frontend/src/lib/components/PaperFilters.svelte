@@ -2,12 +2,22 @@
   import { createEventDispatcher } from 'svelte';
   import type { FilterValues } from '$lib/types';
 
+  import type { PaperListOptions } from '$lib/types';
+
   export let values: FilterValues = {};
+  export let options: PaperListOptions = {
+    states: [],
+    cities: [],
+    chainOwners: [],
+    cmsPlatforms: [],
+    cmsVendors: []
+  };
 
   const dispatch = createEventDispatcher<{ filter: FilterValues; reset: void }>();
 
   let local = {
     state: values.state ?? '',
+    city: values.city ?? '',
     has_pdf: values.has_pdf ?? '',
     pdf_only: values.pdf_only ?? '',
     paywall: values.paywall ?? '',
@@ -21,9 +31,29 @@
 
   const auditOptions = ['', 'Yes', 'No', 'Manual Review'];
 
+  let availableCities: string[] = options.cities;
+  let availableChains: string[] = options.chainOwners;
+  let availableCmsPlatforms: string[] = options.cmsPlatforms;
+  let availableCmsVendors: string[] = options.cmsVendors;
+
+  $: if (local.state && !options.states.includes(local.state)) {
+    local.state = '';
+  }
+
+  $: if (local.city && !options.cities.includes(local.city)) {
+    local.city = '';
+  }
+
+  $: availableCities = options.cities;
+
+  $: availableChains = options.chainOwners;
+  $: availableCmsPlatforms = options.cmsPlatforms;
+  $: availableCmsVendors = options.cmsVendors;
+
   function onSubmit() {
     dispatch('filter', {
       state: local.state || undefined,
+      city: local.city || undefined,
       has_pdf: local.has_pdf || undefined,
       pdf_only: local.pdf_only || undefined,
       paywall: local.paywall || undefined,
@@ -39,6 +69,7 @@
   function onReset() {
     local = {
       state: '',
+      city: '',
       has_pdf: '',
       pdf_only: '',
       paywall: '',
@@ -56,17 +87,56 @@
 <form class="filters" on:submit|preventDefault={onSubmit}>
   <div>
     <label>
-      State
-      <input bind:value={local.state} placeholder="e.g. AL" maxlength="2" />
-    </label>
-  </div>
-  <div>
-    <label>
-      Search
-      <input bind:value={local.q} placeholder="Paper name or city" />
+      Keyword search
+      <input bind:value={local.q} placeholder="Search papers, cities, chains…" />
     </label>
   </div>
   <div class="grid">
+    <label>
+      State
+      <select bind:value={local.state} on:change={() => (local.city = '')}>
+        <option value="">Any</option>
+        {#each options.states as stateOption}
+          <option value={stateOption}>{stateOption}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      City
+      <select bind:value={local.city}>
+        <option value="">Any</option>
+        {#each availableCities as cityOption}
+          <option value={cityOption}>{cityOption}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      Chain
+      <select bind:value={local.chain_owner}>
+        <option value="">Any</option>
+        {#each availableChains as chain}
+          <option value={chain}>{chain}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      CMS Platform
+      <select bind:value={local.cms_platform}>
+        <option value="">Any</option>
+        {#each availableCmsPlatforms as platform}
+          <option value={platform}>{platform}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      CMS Vendor
+      <select bind:value={local.cms_vendor}>
+        <option value="">Any</option>
+        {#each availableCmsVendors as vendor}
+          <option value={vendor}>{vendor}</option>
+        {/each}
+      </select>
+    </label>
     <label>
       Has PDF
       <select bind:value={local.has_pdf}>
@@ -106,18 +176,6 @@
           <option value={option}>{option || 'Any'}</option>
         {/each}
       </select>
-    </label>
-    <label>
-      Chain Owner
-      <input bind:value={local.chain_owner} placeholder="e.g. Gannett" />
-    </label>
-    <label>
-      CMS Platform
-      <input bind:value={local.cms_platform} placeholder="e.g. WordPress" />
-    </label>
-    <label>
-      CMS Vendor
-      <input bind:value={local.cms_vendor} placeholder="e.g. Creative Circle" />
     </label>
   </div>
 

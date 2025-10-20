@@ -162,7 +162,12 @@
     <p class="subtitle">Filter newspapers, review audit status, and trigger updates.</p>
   </section>
 
-  <PaperFilters values={data.params} on:filter={applyFilters} on:reset={resetFilters} />
+  <PaperFilters
+    values={data.params}
+    options={data.response.options}
+    on:filter={applyFilters}
+    on:reset={resetFilters}
+  />
 
   <div class="actions">
     <label class="page-size">

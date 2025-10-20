@@ -9,6 +9,8 @@ from .. import schemas
 from ..database import SessionLocal
 from ..models import Audit, Paper
 
+MISSING_OPTION_LABEL = "(Missing)"
+
 router = APIRouter()
 
 def get_db():
@@ -21,6 +23,7 @@ def get_db():
 @router.get("/", response_model=schemas.PaperListResponse)
 def list_papers(
     state: Optional[str] = Query(default=None, description="Filter by state abbreviation"),
+    city: Optional[str] = Query(default=None, description="Filter by city name"),
     has_pdf: Optional[str] = Query(default=None, description="Filter by Has PDF Edition? result"),
     pdf_only: Optional[str] = Query(default=None, description="Filter by PDF-Only? result"),
     paywall: Optional[str] = Query(default=None, description="Filter by Paywall? result"),
@@ -36,6 +39,29 @@ def list_papers(
     offset: int = Query(default=0, ge=0, description="Records to skip"),
     db: Session = Depends(get_db),
 ):
+    state_clean = state.strip() if state else None
+    city_clean = city.strip() if city else None
+
+    state_stmt = select(func.distinct(Paper.state)).where(Paper.state.isnot(None))
+    state_options = sorted(
+        {
+            value.strip()
+            for value, in db.execute(state_stmt)
+            if isinstance(value, str) and value.strip()
+        }
+    )
+
+    city_stmt = select(func.distinct(Paper.city)).where(Paper.city.isnot(None))
+    if state_clean:
+        city_stmt = city_stmt.where(Paper.state == state_clean)
+    city_options = sorted(
+        {
+            value.strip()
+            for value, in db.execute(city_stmt)
+            if isinstance(value, str) and value.strip()
+        }
+    )
+
     latest_audit_subq = (
         select(
             Audit.id.label("audit_id"),
@@ -67,8 +93,11 @@ def list_papers(
 
     conditions = []
 
-    if state:
-        conditions.append(Paper.state == state.strip())
+    if state_clean:
+        conditions.append(Paper.state == state_clean)
+
+    if city_clean:
+        conditions.append(Paper.city == city_clean)
 
     def _normalize_filter(value: Optional[str]) -> Optional[str]:
         if value is None:
@@ -88,10 +117,11 @@ def list_papers(
     }
 
     for column_name, raw_value in audit_filters.items():
+        column = getattr(latest.c, column_name)
         normalized = _normalize_filter(raw_value)
-        if normalized:
-            column = getattr(latest.c, column_name)
-            conditions.append(func.lower(column) == normalized.lower())
+        condition = _build_audit_condition(column, normalized)
+        if condition is not None:
+            conditions.append(condition)
 
     if q:
         pattern = f"%{q.strip()}%"
@@ -100,6 +130,12 @@ def list_papers(
                 Paper.paper_name.ilike(pattern),
                 Paper.city.ilike(pattern),
                 Paper.state.ilike(pattern),
+                Paper.county.ilike(pattern),
+                Paper.website_url.ilike(pattern),
+                Paper.phone.ilike(pattern),
+                latest.c.chain_owner.ilike(pattern),
+                latest.c.cms_platform.ilike(pattern),
+                latest.c.cms_vendor.ilike(pattern),
             )
         )
 
@@ -173,7 +209,60 @@ def list_papers(
 
     total = db.execute(count_stmt).scalar_one()
 
-    return schemas.PaperListResponse(total=total, items=items)
+    def _distinct_options(column) -> list[str]:
+        option_stmt = select(func.distinct(column)).select_from(count_join)
+        if conditions:
+            option_stmt = option_stmt.where(*conditions)
+        raw_values = [value for value, in db.execute(option_stmt)]
+        normalized: set[str] = set()
+        include_manual_review = False
+        include_missing = False
+        for value in raw_values:
+            if value is None:
+                include_missing = True
+                continue
+            if not isinstance(value, str):
+                include_missing = True
+                continue
+            stripped = value.strip()
+            if not stripped:
+                include_missing = True
+                continue
+            if stripped.lower().startswith("manual review"):
+                include_manual_review = True
+                continue
+            normalized.add(stripped)
+        options_list = sorted(normalized)
+        if include_manual_review:
+            options_list.append("Manual Review")
+        if include_missing:
+            options_list.append(MISSING_OPTION_LABEL)
+        return options_list
+
+    options = schemas.PaperListOptions(
+        states=state_options,
+        cities=city_options,
+        chainOwners=_distinct_options(latest.c.chain_owner),
+        cmsPlatforms=_distinct_options(latest.c.cms_platform),
+        cmsVendors=_distinct_options(latest.c.cms_vendor),
+    )
+
+    return schemas.PaperListResponse(total=total, items=items, options=options)
+
+
+def _build_audit_condition(column, normalized: Optional[str]):
+    if not normalized:
+        return None
+
+    lowered = normalized.lower()
+
+    if lowered == MISSING_OPTION_LABEL.lower():
+        return or_(column.is_(None), func.trim(column) == "")
+
+    if lowered == "manual review":
+        return func.lower(column).like("manual review%")
+
+    return func.lower(column) == lowered
 
 
 @router.get("/{paper_id}", response_model=schemas.PaperDetail)

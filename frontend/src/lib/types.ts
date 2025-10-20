@@ -42,6 +42,7 @@ export interface PaperSummary {
 export interface PaperListResponse {
   total: number;
   items: PaperSummary[];
+  options: PaperListOptions;
 }
 
 export interface PaperDetail {
@@ -71,6 +72,7 @@ export interface PaperUpdatePayload {
 
 export interface PaperListParams {
   state?: string;
+  city?: string;
   has_pdf?: string;
   pdf_only?: string;
   paywall?: string;
@@ -88,6 +90,7 @@ export interface PaperListParams {
 
 export interface FilterValues {
   state?: string;
+  city?: string;
   has_pdf?: string;
   pdf_only?: string;
   paywall?: string;
@@ -98,4 +101,12 @@ export interface FilterValues {
   cms_vendor?: string;
   q?: string;
   limit?: number;
+}
+
+export interface PaperListOptions {
+  states: string[];
+  cities: string[];
+  chainOwners: string[];
+  cmsPlatforms: string[];
+  cmsVendors: string[];
 }
