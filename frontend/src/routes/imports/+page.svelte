@@ -92,6 +92,15 @@
       commitResult = result;
       preview = null;
       actionSelections = {};
+      file = null;
+      const input = document.getElementById('csv-input') as HTMLInputElement | null;
+      if (input) {
+        input.value = '';
+      }
+
+      setTimeout(() => {
+        goto('/papers');
+      }, 2000);
     } catch (err) {
       commitError = err instanceof Error ? err.message : 'Failed to commit import.';
     } finally {
