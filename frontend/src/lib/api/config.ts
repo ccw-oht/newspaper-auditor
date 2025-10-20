@@ -1,4 +1,4 @@
-const DEFAULT_BASE_URL = 'http://localhost:18080';
+const DEFAULT_BASE_URL = 'http://localhost:8000';
 
 let apiBase = DEFAULT_BASE_URL;
 

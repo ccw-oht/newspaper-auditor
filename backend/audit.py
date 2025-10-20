@@ -1,5 +1,5 @@
 import argparse
-import os
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -46,8 +46,40 @@ pdf_href_keywords = [
     "print-edition",
 ]
 
+cms_platform_signatures = [
+    ("BLOX Digital", ["tncms", "bloximages", "townnews", "bloxcms"]),
+    ("WordPress", ["wp-content", "wp-includes", "wordpress", "wp-json", "wp-sitemap"]),
+    ("Drupal", ["drupal.settings", "drupal-settings-json", "drupal"]),
+    ("Arc XP", ["arc-cdn", "arcpublishing", "thearc", "arc publishing", "washpost"]),
+    ("Flatpage/Flatpack", ["flatpage", "flatpack", "wehaa"]),
+    ("Presto", ["presto-content", "gannett-cdn", "gdn-presto", "gannettdigital"]),
+    ("eType", ["etype.services", "etype1", "etype services"]),
+    ("Brightspot", ["brightspot", "bybrightspot"]),
+    ("NewsPack", ["newspack", "automattic", "wpengine"]),
+]
+
+cms_vendor_signatures = [
+    ("Creative Circle", ["creativecircle", "circle-media", "circleid"]),
+    ("ePublishing", ["epublishing", "epubcorp", "epublishing.com", "cld.bz"]),
+    ("eType", ["etype.services", "etype services", "etype1"]),
+    ("Lion's Light", ["lionslight", "lion's light", "lions-light"]),
+    ("Surf New Media", ["surfnewmedia", "snmportal", "surf new media"]),
+    ("Websites For Newspapers", ["websitesfornewspapers", "wfnpro", "wfnp"]),
+    ("BLOX", ["tncms", "bloximages", "townnews", "bloxcms"]),
+    ("Gannett", ["gannett", "gannett-cdn", "gannettdigital", "presto-content"]),
+    ("NewsPack", ["newspack", "automattic", "wpengine"]),
+    ("StuffSites", ["stuffsites", "stuff sites"]),
+    ("PubGenAI", ["pubgenai", "pubgen.ai", "pubgen"]),
+    ("Arc Publishing", ["arc-cdn", "arcpublishing", "thearc", "arc publishing"]),
+    ("Brightspot", ["brightspot", "bybrightspot"]),
+    ("Our Hometown Web Publishing", ["our-hometown", "ourhometown", "our hometown", "oht-"]),
+]
+
 # Snapshot limits
 MAX_SNAPSHOT_CHARS = 500_000
+
+# Output directory for generated audit CSVs (project_root/audits)
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "audits"
 
 # Helper utilities
 def sanitize_homepage_snapshot(
@@ -163,30 +195,70 @@ def detect_chain(homepage_html):
 
 def detect_cms(homepage_html, sitemap_data):
     if not homepage_html:
-        return "Manual Review", [], ["No homepage HTML available"]
+        return "Manual Review", "Manual Review", [], ["No homepage HTML available"]
 
     html_lower = homepage_html.lower()
-    cms_patterns = {
-        "TownNews/BLOX": ["tncms", "bloximages", "townnews"],
-        "WordPress": ["wp-content", "wp-includes", "wordpress", "wp-json"],
-        "Circle Media": ["creativecircle", "circle id", "cm.c", "circle-media"],
-        "Drupal": ["drupal.settings", "drupal-settings-json", "drupal"],
-        "Arc XP": ["arc-cdn", "arcpublishing", "thearc", "arc publishing"],
-        "Flatpage/Flatpack": ["flatpage", "flatpack", "wehaa"],
-    }
+    platform = "Manual Review"
+    vendor = "Manual Review"
+    sources: list[str] = []
+    notes: list[str] = []
 
-    for vendor, tokens in cms_patterns.items():
-        matches = [token for token in tokens if token in html_lower]
-        if matches:
-            note = f"Detected CMS indicators ({vendor}): {', '.join(matches)}"
-            return vendor, ["Homepage"], [note]
+    def _find_signature(signatures, label_type: str) -> tuple[str, list[str]] | None:
+        for label, tokens in signatures:
+            matches = [token for token in tokens if token in html_lower]
+            if matches:
+                note = f"Detected {label_type} indicators ({label}): {', '.join(matches)}"
+                return label, [note]
+        return None
 
-    sitemap_urls = sitemap_data.get("urls", [])
-    for url in sitemap_urls:
-        if "wp-sitemap" in url:
-            return "WordPress", ["Sitemap"], ["Sitemap contains wp-sitemap entries"]
+    platform_match = _find_signature(cms_platform_signatures, "platform")
+    if platform_match:
+        platform, platform_notes = platform_match
+        sources.append("Homepage")
+        notes.extend(platform_notes)
 
-    return "Manual Review", [], []
+    vendor_match = _find_signature(cms_vendor_signatures, "vendor")
+    if vendor_match:
+        vendor, vendor_notes = vendor_match
+        if "Homepage" not in sources:
+            sources.append("Homepage")
+        notes.extend(vendor_notes)
+
+    if platform == "Manual Review":
+        sitemap_urls = sitemap_data.get("urls", [])
+        for url in sitemap_urls:
+            if "wp-sitemap" in url:
+                platform = "WordPress"
+                notes.append("Sitemap contains wp-sitemap entries")
+                sources.append("Sitemap")
+                break
+
+    # If a vendor strongly implies a platform, set a best guess
+    if vendor != "Manual Review" and platform == "Manual Review":
+        implied_platforms = {
+            "Creative Circle": "Creative Circle",
+            "BLOX": "BLOX Digital",
+            "Gannett": "Presto",
+            "eType": "eType",
+            "Arc Publishing": "Arc XP",
+            "Brightspot": "Brightspot",
+            "NewsPack": "WordPress",
+            "Our Hometown Web Publishing": "WordPress",
+            "StuffSites": "StuffSites",
+            "PubGenAI": "PubGenAI",
+            "ePublishing": "ePublishing",
+            "Lion's Light": "Lion's Light",
+            "Surf New Media": "Surf New Media",
+            "Websites For Newspapers": "Websites For Newspapers",
+        }
+        platform = implied_platforms.get(vendor, platform)
+
+    if not sources and (platform != "Manual Review" or vendor != "Manual Review"):
+        sources.append("Homepage")
+
+    sources = list(dict.fromkeys(sources))
+
+    return platform, vendor, sources, notes
 
 def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
     sources, notes = [], []
@@ -331,6 +403,7 @@ def quick_audit(url):
         "Audit Notes": "",
         "Homepage HTML": None,
         "Chain Owner": "Manual Review",
+        "CMS Platform": "Manual Review",
         "CMS Vendor": "Manual Review",
     }
 
@@ -346,7 +419,7 @@ def quick_audit(url):
     sitemap_data = check_sitemap(url)
     rss_data = check_rss(url)
     chain_value, chain_sources, chain_notes = detect_chain(homepage_html)
-    cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)
+    cms_platform, cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)
 
     chain_for_rules = None if chain_value == "Manual Review" else chain_value
 
@@ -385,8 +458,16 @@ def quick_audit(url):
             f"Homepage snapshot truncated to {MAX_SNAPSHOT_CHARS:,} characters"
         )
 
+    if cms_vendor == "BLOX" and cms_platform == "Manual Review":
+        cms_platform = "BLOX Digital"
+    if cms_vendor == "eType" and cms_platform == "Manual Review":
+        cms_platform = "eType"
+
     if chain_value == "Gannett":
-        cms_vendor = "Proprietary"
+        if cms_vendor == "Manual Review":
+            cms_vendor = "Gannett"
+        if cms_platform == "Manual Review":
+            cms_platform = "Presto"
 
     audit.update({
         "Has PDF Edition?": has_pdf,
@@ -394,17 +475,19 @@ def quick_audit(url):
         "Paywall?": paywall,
         "Free Public Notices?": notices,
         "Mobile Responsive?": responsive,
-        "Audit Sources": "+".join(set(all_sources)) if all_sources else "None",
+        "Audit Sources": "+".join(sorted(set(all_sources))) if all_sources else "None",
         "Audit Notes": " | ".join(all_notes) if all_notes else "",
         "Homepage HTML": sanitized_homepage_html,
         "Chain Owner": chain_value,
+        "CMS Platform": cms_platform,
         "CMS Vendor": cms_vendor,
     })
 
     return audit
 
 def process_csv(input_file, force=False):
-    df = pd.read_csv(input_file)
+    input_path = Path(input_file)
+    df = pd.read_csv(input_path)
 
     def _find_url_column(frame: pd.DataFrame) -> str | None:
         column_lookup = {col.lower(): col for col in frame.columns}
@@ -427,6 +510,7 @@ def process_csv(input_file, force=False):
         "Free Public Notices?",
         "Mobile Responsive?",
         "Chain Owner",
+        "CMS Platform",
         "CMS Vendor",
         "Audit Sources",
         "Audit Notes",
@@ -435,10 +519,11 @@ def process_csv(input_file, force=False):
         if col not in df.columns:
             df[col] = ""
 
-    base = os.path.splitext(os.path.basename(input_file))[0]
-    out_file = f"{base}_Audit.csv"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    base = input_path.stem
+    out_file = OUTPUT_DIR / f"{base}_Audit.csv"
 
-    if os.path.exists(out_file):
+    if out_file.exists():
         if force:
             print(f"⚠️ Overwriting existing audit file: {out_file}")
         else:
@@ -496,8 +581,8 @@ def main():
     parser.add_argument("--force", action="store_true", help="Re-run audits even if cached results exist")
     args = parser.parse_args()
 
-    input_path = args.input_csv
-    if not os.path.exists(input_path):
+    input_path = Path(args.input_csv)
+    if not input_path.exists():
         parser.error(f"Input file not found: {input_path}")
 
     process_csv(input_path, force=args.force)

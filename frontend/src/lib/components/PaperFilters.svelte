@@ -14,6 +14,7 @@
     notices: values.notices ?? '',
     responsive: values.responsive ?? '',
     chain_owner: values.chain_owner ?? '',
+    cms_platform: values.cms_platform ?? '',
     cms_vendor: values.cms_vendor ?? '',
     q: values.q ?? ''
   };
@@ -29,6 +30,7 @@
       notices: local.notices || undefined,
       responsive: local.responsive || undefined,
       chain_owner: local.chain_owner || undefined,
+      cms_platform: local.cms_platform || undefined,
       cms_vendor: local.cms_vendor || undefined,
       q: local.q || undefined
     });
@@ -43,6 +45,7 @@
       notices: '',
       responsive: '',
       chain_owner: '',
+      cms_platform: '',
       cms_vendor: '',
       q: ''
     };
@@ -109,8 +112,12 @@
       <input bind:value={local.chain_owner} placeholder="e.g. Gannett" />
     </label>
     <label>
+      CMS Platform
+      <input bind:value={local.cms_platform} placeholder="e.g. WordPress" />
+    </label>
+    <label>
       CMS Vendor
-      <input bind:value={local.cms_vendor} placeholder="e.g. WordPress" />
+      <input bind:value={local.cms_vendor} placeholder="e.g. Creative Circle" />
     </label>
   </div>
 

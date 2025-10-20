@@ -101,7 +101,8 @@
         <th>Notices</th>
         <th>Responsive</th>
         <th>Chain</th>
-        <th>CMS</th>
+        <th>CMS Platform</th>
+        <th>CMS Vendor</th>
         <th>Last Audit</th>
         <th></th>
       </tr>
@@ -109,7 +110,7 @@
     <tbody>
       {#if items.length === 0}
         <tr>
-          <td colspan="13" class="empty">No results</td>
+          <td colspan="14" class="empty">No results</td>
         </tr>
       {:else}
         {#each items as item, index}
@@ -141,6 +142,7 @@
             <td>{item.latest_audit?.notices ?? '—'}</td>
             <td>{item.latest_audit?.responsive ?? '—'}</td>
             <td>{item.latest_audit?.chain_owner ?? '—'}</td>
+            <td>{item.latest_audit?.cms_platform ?? '—'}</td>
             <td>{item.latest_audit?.cms_vendor ?? '—'}</td>
             <td>{item.latest_audit?.timestamp ? formatRelativeTime(item.latest_audit.timestamp) : 'Never'}</td>
             <td>

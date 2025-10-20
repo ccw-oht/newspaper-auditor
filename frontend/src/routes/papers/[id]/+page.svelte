@@ -180,6 +180,10 @@
               <dd>{selectedAudit.chain_owner ?? '—'}</dd>
             </div>
             <div>
+              <dt>CMS platform</dt>
+              <dd>{selectedAudit.cms_platform ?? '—'}</dd>
+            </div>
+            <div>
               <dt>CMS vendor</dt>
               <dd>{selectedAudit.cms_vendor ?? '—'}</dd>
             </div>

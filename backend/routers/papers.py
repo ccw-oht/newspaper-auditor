@@ -27,6 +27,7 @@ def list_papers(
     notices: Optional[str] = Query(default=None, description="Filter by Free Public Notices result"),
     responsive: Optional[str] = Query(default=None, description="Filter by Mobile Responsive result"),
     chain_owner: Optional[str] = Query(default=None, description="Filter by detected chain/owner"),
+    cms_platform: Optional[str] = Query(default=None, description="Filter by detected CMS platform"),
     cms_vendor: Optional[str] = Query(default=None, description="Filter by detected CMS vendor"),
     q: Optional[str] = Query(default=None, description="Search by paper name or city"),
     sort: str = Query(default="paper_name", description="Field to sort by"),
@@ -48,6 +49,7 @@ def list_papers(
             Audit.sources.label("sources"),
             Audit.notes.label("notes"),
             Audit.chain_owner.label("chain_owner"),
+            Audit.cms_platform.label("cms_platform"),
             Audit.cms_vendor.label("cms_vendor"),
             func.substr(Audit.homepage_html, 1, 1500).label("homepage_preview"),
             func.row_number()
@@ -81,6 +83,7 @@ def list_papers(
         "notices": notices,
         "responsive": responsive,
         "chain_owner": chain_owner,
+        "cms_platform": cms_platform,
         "cms_vendor": cms_vendor,
     }
 
@@ -141,6 +144,7 @@ def list_papers(
                 notes=mapping.get("notes"),
                 homepage_preview=mapping.get("homepage_preview"),
                 chain_owner=mapping.get("chain_owner"),
+                cms_platform=mapping.get("cms_platform"),
                 cms_vendor=mapping.get("cms_vendor"),
             )
 
@@ -250,6 +254,7 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
             notes=latest.notes,
             homepage_preview=(latest.homepage_html[:1500] if latest.homepage_html else None),
             chain_owner=latest.chain_owner,
+            cms_platform=latest.cms_platform,
             cms_vendor=latest.cms_vendor,
         )
         if latest

@@ -10,3 +10,4 @@ __pycache__/
 .vscode/
 audits/
 test-csv/
+utils/

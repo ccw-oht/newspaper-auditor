@@ -17,6 +17,7 @@ PYTHON ?= python3
 UVICORN ?= uvicorn
 FRONTEND_DIR ?= frontend
 NPM ?= npm
+FRONTEND_STAMP ?= $(FRONTEND_DIR)/node_modules/.install-complete
 
 $(VENV)/bin/activate:
 	$(PYTHON) -m venv $(VENV)
@@ -36,8 +37,12 @@ compose-down-clean:
 dev-backend: install
 	. $(VENV)/bin/activate && $(UVICORN) backend.app:app --reload --host 0.0.0.0 --port 8000
 
-frontend-install:
-	cd $(FRONTEND_DIR) && $(NPM) install
+frontend-install: $(FRONTEND_STAMP)
+
+$(FRONTEND_STAMP): $(FRONTEND_DIR)/package.json $(FRONTEND_DIR)/package-lock.json
+	cd $(FRONTEND_DIR) && $(NPM) install --no-fund --no-audit
+	@mkdir -p $(dir $(FRONTEND_STAMP))
+	@touch $(FRONTEND_STAMP)
 
 dev-frontend: frontend-install
 	cd $(FRONTEND_DIR) && $(NPM) run dev -- --host

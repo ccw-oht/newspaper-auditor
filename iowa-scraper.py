@@ -1,91 +1,146 @@
-import re
+import argparse
 import csv
-import json
+
 import requests
 from bs4 import BeautifulSoup
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Connection": "keep-alive",
+}
+
 URL = "https://inanews.com/find-iowa-newspaper/"
-OUTPUT_FILE = "iowa_newspapers.csv"
+DEFAULT_OUTPUT = "iowa_newspapers.csv"
 
-def extract_newspapers():
-    r = requests.get(URL)
+def fetch_html(source_file: str | None = None) -> str:
+    if source_file:
+        with open(source_file, "r", encoding="utf-8") as handle:
+            return handle.read()
+
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    r = session.get(URL, timeout=10)
     r.raise_for_status()
-    html = r.text
+    return r.text
 
-    # find the javascript block with map data
-    match = re.search(r"var locations\s*=\s*(\[.*?\]);", html, re.DOTALL)
-    if not match:
-        print("Could not find location data in source.")
-        return []
 
-    # parse the JSON-like structure
-    raw = match.group(1)
-
-    # Clean up for JSON parsing
-    # Some pages have invalid JS (e.g., single quotes), so fix that
-    fixed = re.sub(r"(?<=\{|,)\s*([a-zA-Z0-9_]+)\s*:", r'"\1":', raw)  # quote keys if needed
-    fixed = fixed.replace("'", '"')
-
-    # parse as JSON if possible
-    try:
-        data = json.loads(fixed)
-    except Exception:
-        # fallback: regex parse simpler pattern
-        pattern = re.compile(
-            r"\['(.*?)','(.*?)','(.*?)','(.*?)','(.*?)','(.*?)','(.*?)','(.*?)','(.*?)','(.*?)','(.*?)'\]"
-        )
-        data = pattern.findall(raw)
+def extract_newspapers(html: str):
+    soup = BeautifulSoup(html, "html.parser")
+    items = soup.select("li.map-list-item")
 
     newspapers = []
-    for item in data:
-        if isinstance(item, dict):
-            name = item.get("name", "")
-            city = item.get("city", "")
-            county = item.get("county", "")
-            address = item.get("address", "")
-            phone = item.get("phone", "")
-            fax = item.get("fax", "")
-            website = item.get("website", "")
-            email = item.get("email", "")
-            pub_days = item.get("pub_days", "")
-            circ = item.get("circulation", "")
-            staff = item.get("staff", "")
-        else:
-            # fallback for tuple-style list
-            (name, city, county, address, phone, fax, website,
-             email, pub_days, circ, staff, *_rest) = item + ("",)*(12-len(item))
+    for li in items:
+        name_el = li.select_one(".neon-result-title strong") or li.select_one(".neon-result-title")
+        name = name_el.get_text(strip=True) if name_el else ""
 
-        newspapers.append({
-            "Name": name.strip(),
-            "City": city.strip(),
-            "County": county.strip(),
-            "Address": address.strip(),
-            "Phone": phone.strip(),
-            "Fax": fax.strip(),
-            "Website": website.strip(),
-            "Email": email.strip(),
-            "Publication Days": pub_days.strip(),
-            "Circulation": circ.strip(),
-            "Staff / Contacts": staff.strip(),
-        })
+        address_lines = []
+        for address_class in [".mailing-address", ".mailing-address2"]:
+            addr_el = li.select_one(address_class)
+            if addr_el:
+                address_lines.extend(list(addr_el.stripped_strings))
+        address = ", ".join(address_lines)
+
+        phone = fax = website = email = ""
+        contact_block = li.select_one(".contact")
+        if contact_block:
+            for entry in contact_block.find_all("div", recursive=False):
+                text = entry.get_text(" ", strip=True)
+                if text.startswith("Phone:"):
+                    phone = text.split("Phone:", 1)[1].strip()
+                elif text.startswith("Fax:"):
+                    fax = text.split("Fax:", 1)[1].strip()
+                elif text.startswith("Website:"):
+                    link = entry.find("a")
+                    website = link.get("href", "").strip() if link else text.split("Website:", 1)[1].strip()
+                elif text.startswith("Email:"):
+                    link = entry.find("a")
+                    if link and link.get("href", "").startswith("mailto:"):
+                        email = link.get("href")[7:].strip()
+                    else:
+                        email = (link.get_text(strip=True) if link else text.split("Email:", 1)[1]).strip()
+
+        pub_days = circ = ""
+        pub_block = li.select_one(".publication-info")
+        if pub_block:
+            for entry in pub_block.find_all("div", recursive=False):
+                text = entry.get_text(strip=True)
+                if text.startswith("Publication Days:"):
+                    pub_days = text.split("Publication Days:", 1)[1].strip()
+                elif text.startswith("Circulation:"):
+                    circ = text.split("Circulation:", 1)[1].strip()
+
+        staff_entries = []
+        for contact in li.select(".contact-content .account-contact"):
+            name_part = contact.select_one(".contact-name")
+            dept_part = contact.select_one(".contact-department")
+            name_value = name_part.get_text(strip=True) if name_part else ""
+            dept_value = dept_part.get_text(strip=True) if dept_part else ""
+            if name_value or dept_value:
+                if dept_value:
+                    staff_entries.append(f"{name_value} ({dept_value})" if name_value else dept_value)
+                else:
+                    staff_entries.append(name_value)
+        staff = "; ".join(staff_entries)
+
+        city = li.get("data-city", "").strip()
+        county = li.get("data-county", "").strip()
+
+        newspapers.append(
+            {
+                "Name": name,
+                "City": city,
+                "County": county,
+                "Address": address,
+                "Phone": phone,
+                "Fax": fax,
+                "Website": website,
+                "Email": email,
+                "Publication Days": pub_days,
+                "Circulation": circ,
+                "Staff / Contacts": staff,
+            }
+        )
 
     return newspapers
 
 
-def save_csv(records):
+def save_csv(records, output_path: str):
     if not records:
         print("No data extracted.")
         return
 
     keys = records[0].keys()
-    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
         writer.writerows(records)
 
-    print(f"✅ Saved {len(records)} records to {OUTPUT_FILE}")
+    print(f"✅ Saved {len(records)} records to {output_path}")
 
 
 if __name__ == "__main__":
-    papers = extract_newspapers()
-    save_csv(papers)
+    parser = argparse.ArgumentParser(description="Scrape Iowa newspaper listings")
+    parser.add_argument(
+        "--source-file",
+        dest="source_file",
+        help="Optional local HTML file to parse instead of fetching from the web",
+    )
+    parser.add_argument(
+        "--output",
+        dest="output",
+        default=DEFAULT_OUTPUT,
+        help=f"Where to write CSV results (default: {DEFAULT_OUTPUT})",
+    )
+
+    args = parser.parse_args()
+
+    html_text = fetch_html(args.source_file)
+    papers = extract_newspapers(html_text)
+    save_csv(papers, args.output)

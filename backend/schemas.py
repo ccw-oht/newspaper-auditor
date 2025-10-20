@@ -18,6 +18,7 @@ class AuditOut(BaseModel):
     notes: Optional[str] = None
     homepage_html: Optional[str] = None
     chain_owner: Optional[str] = None
+    cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
 
     class Config:
@@ -56,6 +57,7 @@ class AuditSummary(BaseModel):
     notes: Optional[str] = None
     homepage_preview: Optional[str] = None
     chain_owner: Optional[str] = None
+    cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
 
 

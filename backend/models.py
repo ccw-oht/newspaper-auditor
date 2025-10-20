@@ -33,6 +33,7 @@ class Audit(Base):
     notes = Column(String)
     homepage_html = Column(Text)
     chain_owner = Column(String)
+    cms_platform = Column(String)
     cms_vendor = Column(String)
 
     paper = relationship("Paper", back_populates="audits")

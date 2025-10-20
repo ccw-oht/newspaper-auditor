@@ -12,6 +12,7 @@ export interface AuditSummary {
   notes: string | null;
   homepage_preview: string | null;
   chain_owner: string | null;
+  cms_platform: string | null;
   cms_vendor: string | null;
 }
 
@@ -21,6 +22,7 @@ export interface AuditOut extends AuditSummary {
   timestamp: string;
   homepage_html: string | null;
   chain_owner: string | null;
+  cms_platform: string | null;
   cms_vendor: string | null;
 }
 
@@ -75,6 +77,7 @@ export interface PaperListParams {
   notices?: string;
   responsive?: string;
   chain_owner?: string;
+  cms_platform?: string;
   cms_vendor?: string;
   q?: string;
   sort?: string;
@@ -91,6 +94,7 @@ export interface FilterValues {
   notices?: string;
   responsive?: string;
   chain_owner?: string;
+  cms_platform?: string;
   cms_vendor?: string;
   q?: string;
   limit?: number;
