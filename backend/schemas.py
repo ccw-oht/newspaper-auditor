@@ -111,3 +111,43 @@ class PaperUpdate(BaseModel):
     mailing_address: Optional[str] = Field(default=None)
     county: Optional[str] = Field(default=None)
     extra_data: Optional[Dict[str, Any]] = Field(default=None)
+
+
+class ImportPreviewRow(BaseModel):
+    temp_id: str
+    status: str
+    allowed_actions: List[str]
+    data: Dict[str, Any]
+    existing: Optional[Dict[str, Any]] = None
+    differences: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    issues: List[str] = Field(default_factory=list)
+
+
+class ImportPreviewSummary(BaseModel):
+    new: int = 0
+    update: int = 0
+    duplicate: int = 0
+    invalid: int = 0
+
+
+class ImportPreviewResponse(BaseModel):
+    rows: List[ImportPreviewRow]
+    summary: ImportPreviewSummary
+
+
+class ImportCommitRow(BaseModel):
+    temp_id: str
+    action: str
+    data: Dict[str, Any]
+    existing_id: Optional[int] = None
+    status: Optional[str] = None
+
+
+class ImportCommitRequest(BaseModel):
+    rows: List[ImportCommitRow]
+
+
+class ImportCommitResult(BaseModel):
+    inserted: int
+    updated: int
+    skipped: int

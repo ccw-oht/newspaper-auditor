@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import papers, audits
+from .routers import papers, audits, imports
 from .database import Base, engine
 
 # Create DB tables on startup
@@ -25,6 +25,7 @@ app.add_middleware(
 # Register routers
 app.include_router(papers.router, prefix="/papers", tags=["papers"])
 app.include_router(audits.router, prefix="/audits", tags=["audits"])
+app.include_router(imports.router, prefix="/imports", tags=["imports"])
 
 @app.get("/")
 def root():

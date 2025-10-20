@@ -4,34 +4,20 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Tuple
 
 import pandas as pd
 from sqlalchemy import delete, select
 
 from .database import SessionLocal
 from .models import Audit, Paper
-
-
-COLUMN_ALIASES: Dict[str, Iterable[str]] = {
-    "state": ["state"],
-    "city": ["city"],
-    "paper_name": ["paper name", "name"],
-    "website_url": ["website url", "url", "site", "website"],
-    "phone": ["phone", "phone number"],
-    "mailing_address": ["mailing address", "address"],
-    "county": ["county"],
-}
-
-REQUIRED_FIELDS = {"city", "paper_name"}
-
-
-def build_lookup_key(data: Dict[str, str | None]) -> tuple:
-    return (
-        (data.get("paper_name") or "").lower(),
-        (data.get("city") or "").lower(),
-        (data.get("state") or "").lower(),
-    )
+from .import_utils import (
+    COLUMN_ALIASES,
+    REQUIRED_FIELDS,
+    build_lookup_key,
+    iter_normalized_rows,
+    normalize_columns,
+)
 
 
 def lookup_statement(data: Dict[str, str | None]):
@@ -56,34 +42,6 @@ def apply_update(record: Paper, data: Dict[str, str | None]) -> None:
             setattr(record, field, value)
 
 
-def normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:
-    """Rename incoming columns to match the Paper model fields."""
-
-    column_lookup = {col.lower(): col for col in frame.columns}
-    rename_map: Dict[str, str] = {}
-
-    for canonical, aliases in COLUMN_ALIASES.items():
-        for alias in aliases:
-            lower_alias = alias.lower()
-            if lower_alias in column_lookup:
-                rename_map[column_lookup[lower_alias]] = canonical
-                break
-
-    normalized = frame.rename(columns=rename_map)
-    for field in COLUMN_ALIASES.keys():
-        if field not in normalized.columns:
-            normalized[field] = None
-
-    return normalized
-
-
-def clean_value(value) -> str | None:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return None
-    text = str(value).strip()
-    return text or None
-
-
 def load_rows(frame: pd.DataFrame, truncate_first: bool = False, dry_run: bool = False) -> Tuple[int, int, int]:
     """Persist rows into the database and return counts (inserted, updated, skipped)."""
 
@@ -98,27 +56,13 @@ def load_rows(frame: pd.DataFrame, truncate_first: bool = False, dry_run: bool =
             session.execute(delete(Paper))
             session.commit()
 
-        known_fields = set(COLUMN_ALIASES.keys())
         cache: Dict[tuple, Paper] = {}
 
-        for idx, row in frame.iterrows():
-            data = {
-                field: clean_value(row.get(field)) for field in known_fields
-            }
-
+        for idx, (data, _) in enumerate(iter_normalized_rows(frame)):
             missing = [field for field in REQUIRED_FIELDS if not data.get(field)]
             if missing:
                 skipped += 1
                 continue
-
-            extras = {}
-            for column in row.index:
-                if column not in known_fields:
-                    value = clean_value(row.get(column))
-                    if value is not None:
-                        extras[column] = value
-
-            data["extra_data"] = extras if extras else None
 
             key = build_lookup_key(data)
 
@@ -152,7 +96,7 @@ def load_rows(frame: pd.DataFrame, truncate_first: bool = False, dry_run: bool =
 
 
 def run_loader(csv_path: Path, truncate_first: bool = False, dry_run: bool = False) -> Tuple[int, int, int]:
-    frame = pd.read_csv(csv_path)
+    frame = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
     return load_rows(frame, truncate_first=truncate_first, dry_run=dry_run)
 
 
