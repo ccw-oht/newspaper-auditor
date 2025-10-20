@@ -166,7 +166,7 @@ def check_rss(base_url):
 
 def detect_chain(homepage_html):
     if not homepage_html:
-        return "Manual Review", [], ["No homepage HTML available"]
+        return "None", [], ["No homepage HTML available"]
 
     html_lower = homepage_html.lower()
     chain_patterns = {
@@ -190,7 +190,7 @@ def detect_chain(homepage_html):
             note = f"Detected chain indicators ({chain}): {', '.join(matches)}"
             return chain, ["Homepage"], [note]
 
-    return "Manual Review", [], []
+    return "None", [], []
 
 
 def detect_cms(homepage_html, sitemap_data):
@@ -262,7 +262,7 @@ def detect_cms(homepage_html, sitemap_data):
 
 def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
     sources, notes = [], []
-    has_pdf = "Manual Review"
+    has_pdf = None
     pdf_only = "Manual Review"
     data_observed = False
 
@@ -322,46 +322,62 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
     elif data_observed:
         pdf_only = "No"
 
-    if data_observed and has_pdf == "Manual Review":
+    if has_pdf is None:
         has_pdf = "No"
 
     return has_pdf, pdf_only, sources, notes
 
 def detect_paywall(homepage_html, sitemap_data, rss_data, chain_detected):
     sources, notes = [], []
+    has_signal = False
+
     if chain_detected:
         notes.append(f"Chain heuristic: {chain_detected}, default Paywall=Yes")
         return "Yes", [f"Heuristic:{chain_detected}"], notes
 
     if homepage_html and any(k in homepage_html.lower() for k in paywall_keywords):
         notes.append("Homepage contains paywall keywords")
-        return "Yes", ["Homepage"], notes
+        has_signal = True
+        sources.append("Homepage")
 
     if sitemap_data["used"]:
         if any("subscribe" in loc or "membership" in loc or "registration" in loc or "premium" in loc for loc in sitemap_data.get("urls", [])):
             notes.append("Sitemap contains subscription-related URLs")
-            return "Yes", ["Sitemap"], notes
+            has_signal = True
+            sources.append("Sitemap")
 
     if rss_data["feed_found"] and rss_data["paywall_hint"]:
         notes.append("RSS feed contains paywall hints")
-        return "Yes", ["RSS"], notes
+        has_signal = True
+        sources.append("RSS")
+
+    if has_signal:
+        return "Yes", sources or ["Homepage"], notes
 
     notes.append("No paywall signals found")
     return "No", sources, notes
 
 def detect_public_notices(homepage_html, sitemap_data, rss_data):
     sources, notes = [], []
+    has_signal = False
+
     if homepage_html and any(k in homepage_html.lower() for k in public_notice_keywords):
         notes.append("Homepage contains public notice keywords")
-        return "Yes", ["Homepage"], notes
+        has_signal = True
+        sources.append("Homepage")
 
     if sitemap_data["used"] and sitemap_data["notices"]:
         notes.append("Sitemap contains notice-related URLs")
-        return "Yes", ["Sitemap"], notes
+        has_signal = True
+        sources.append("Sitemap")
 
     if rss_data["feed_found"] and rss_data["notices"]:
         notes.append("RSS feed contains notice keywords")
-        return "Yes", ["RSS"], notes
+        has_signal = True
+        sources.append("RSS")
+
+    if has_signal:
+        return "Yes", sources or ["Homepage"], notes
 
     notes.append("No notices found")
     return "No", sources, notes
