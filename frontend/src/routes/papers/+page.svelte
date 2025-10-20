@@ -18,6 +18,11 @@
   let pageSize = Number(data.params.limit ?? 50);
   let progressCurrent = 0;
   let progressTotal = 0;
+  let currentSortField: string = 'paper_name';
+  let currentSortOrder: 'asc' | 'desc' = 'asc';
+
+  $: currentSortField = (data.params.sort as string | undefined) ?? 'paper_name';
+  $: currentSortOrder = (data.params.order as 'asc' | 'desc' | undefined) === 'desc' ? 'desc' : 'asc';
 
   $: selectedArray = Array.from(selectedIds);
   $: selectedCount = selectedArray.length;
@@ -30,6 +35,12 @@
       if (value === undefined || value === null || value === '') return;
       search.set(key, String(value));
     });
+    if (data.params.sort) {
+      search.set('sort', String(data.params.sort));
+    }
+    if (data.params.order) {
+      search.set('order', String(data.params.order));
+    }
     await goto(`/papers${search.toString() ? `?${search}` : ''}`);
   }
 
@@ -135,6 +146,14 @@
     params.set('offset', '0');
     await goto(`/papers?${params.toString()}`);
   }
+
+  async function handleSort(event: CustomEvent<{ field: string; order: 'asc' | 'desc' }>) {
+    const params = new URLSearchParams(data.query);
+    params.set('sort', event.detail.field);
+    params.set('order', event.detail.order);
+    params.set('offset', '0');
+    await goto(`/papers?${params.toString()}`);
+  }
 </script>
 
 <div class="page">
@@ -172,7 +191,10 @@
     on:select={handleSelect}
     on:selectRange={handleSelectRange}
     on:selectAll={handleSelectAll}
+    on:sort={handleSort}
     selected={selectedArray}
+    sortField={currentSortField}
+    sortOrder={currentSortOrder}
     {loading}
   />
 </div>

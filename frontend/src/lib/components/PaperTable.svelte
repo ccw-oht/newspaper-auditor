@@ -10,6 +10,8 @@
   export let offset = 0;
   export let loading = false;
   export let selected: number[] = [];
+  export let sortField: string = 'paper_name';
+  export let sortOrder: 'asc' | 'desc' = 'asc';
 
   const dispatch = createEventDispatcher<{
     audit: { id: number };
@@ -17,6 +19,7 @@
     select: { id: number; checked: boolean };
     selectRange: { ids: number[]; checked: boolean };
     selectAll: { ids: number[]; checked: boolean };
+    sort: { field: string; order: 'asc' | 'desc' };
   }>();
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -39,6 +42,23 @@
   function goToPage(page: number) {
     const target = Math.max(1, Math.min(totalPages, page));
     dispatch('paginate', { offset: (target - 1) * limit });
+  }
+
+  const sortableColumns: Record<string, string> = {
+    paper_name: 'Paper',
+    city: 'City',
+    state: 'State',
+    timestamp: 'Last Audit',
+  };
+
+  function toggleSort(field: string) {
+    const nextOrder: 'asc' | 'desc' = field === sortField ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc';
+    dispatch('sort', { field, order: nextOrder });
+  }
+
+  function columnAriaSort(field: string): 'ascending' | 'descending' | 'none' {
+    if (field !== sortField) return 'none';
+    return sortOrder === 'asc' ? 'ascending' : 'descending';
   }
 
   $: if (lastToggledIndex !== null && (lastToggledIndex < 0 || lastToggledIndex >= items.length)) {
@@ -92,9 +112,39 @@
             aria-label="Select visible papers"
           />
         </th>
-        <th>Paper</th>
-        <th>City</th>
-        <th>State</th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('paper_name')}
+        >
+          <button type="button" on:click={() => toggleSort('paper_name')}>
+            Paper
+            {#if sortField === 'paper_name'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('city')}
+        >
+          <button type="button" on:click={() => toggleSort('city')}>
+            City
+            {#if sortField === 'city'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('state')}
+        >
+          <button type="button" on:click={() => toggleSort('state')}>
+            State
+            {#if sortField === 'state'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
         <th>Website</th>
         <th>Has PDF</th>
         <th>Paywall</th>
@@ -103,7 +153,17 @@
         <th>Chain</th>
         <th>CMS Platform</th>
         <th>CMS Vendor</th>
-        <th>Last Audit</th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('timestamp')}
+        >
+          <button type="button" on:click={() => toggleSort('timestamp')}>
+            Last Audit
+            {#if sortField === 'timestamp'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
         <th></th>
       </tr>
     </thead>
@@ -196,6 +256,35 @@
     padding: 0.75rem;
     border-bottom: 1px solid #e5e7eb;
     font-size: 0.9rem;
+  }
+
+  th.sortable {
+    padding: 0;
+  }
+
+  th.sortable button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: transparent;
+    border: none;
+    padding: 0.75rem;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  th.sortable button:hover,
+  th.sortable button:focus {
+    background-color: #eef2ff;
+    outline: none;
+  }
+
+  .sort-indicator {
+    font-size: 0.75rem;
+    color: #6b7280;
   }
 
   th.select,
