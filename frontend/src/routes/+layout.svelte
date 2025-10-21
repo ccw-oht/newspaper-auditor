@@ -1,3 +1,12 @@
+<script lang="ts">
+  import { page } from '$app/stores';
+
+  const navLinks = [
+    { href: '/papers', label: 'Papers' },
+    { href: '/imports', label: 'Imports' }
+  ];
+</script>
+
 <svelte:head>
   <title>Newspaper Audit Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,7 +16,14 @@
   <header class="app-header">
     <h1>Newspaper Audit Dashboard</h1>
     <nav>
-      <a href="/papers">Papers</a>
+      {#each navLinks as link}
+        <a
+          href={link.href}
+          class:active={$page.url.pathname.startsWith(link.href)}
+        >
+          {link.label}
+        </a>
+      {/each}
     </nav>
   </header>
   <main>

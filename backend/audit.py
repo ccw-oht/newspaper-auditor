@@ -20,7 +20,6 @@ public_notice_keywords = [
     "legal notice",
     "legals",
     "notices",
-    "classifieds",
     "obituaries",
 ]
 pdf_homepage_keywords = [
@@ -31,10 +30,15 @@ pdf_homepage_keywords = [
     "e-paper",
     "digital edition",
     "digital replica",
+    "digital-version",
+    "digital version",
     "replica edition",
     "enewspaper",
     "e-newspaper",
     "printed paper",
+    "epost",
+    "e-post",
+    "e post",
 ]
 pdf_href_keywords = [
     "eedition",
@@ -42,8 +46,12 @@ pdf_href_keywords = [
     "e-edition",
     "enewspaper",
     "digitaledition",
+    "digital-version",
+    "digital version",
     "replica",
     "print-edition",
+    "epost",
+    "e-post",
 ]
 
 cms_platform_signatures = [
@@ -72,7 +80,7 @@ cms_vendor_signatures = [
     ("PubGenAI", ["pubgenai", "pubgen.ai", "pubgen"]),
     ("Arc Publishing", ["arc-cdn", "arcpublishing", "thearc", "arc publishing"]),
     ("Brightspot", ["brightspot", "bybrightspot"]),
-    ("Our Hometown Web Publishing", ["our-hometown", "ourhometown", "our hometown", "oht-"]),
+    ("Our Hometown Web Publishing", ["our-hometown", "ourhometown", "oht-"]),
 ]
 
 # Snapshot limits

@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import asc, case, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import schemas
@@ -51,27 +51,56 @@ def list_papers(
     db: Session = Depends(get_db),
 ):
     state_clean = state.strip() if state else None
+    state_missing_selected = False
+    if state_clean == MISSING_OPTION_LABEL:
+        state_missing_selected = True
+        state_clean = None
+    state_missing_selected = False
+    if state_clean == MISSING_OPTION_LABEL:
+        state_missing_selected = True
+        state_clean = None
     city_clean = city.strip() if city else None
 
-    state_stmt = select(func.distinct(Paper.state)).where(Paper.state.isnot(None))
-    state_options = sorted(
-        {
-            value.strip()
-            for value, in db.execute(state_stmt)
-            if isinstance(value, str) and value.strip()
-        }
+    state_stmt = select(func.distinct(Paper.state))
+    state_values = [value for value, in db.execute(state_stmt)]
+    state_options_set = {
+        value.strip()
+        for value in state_values
+        if isinstance(value, str) and value.strip()
+    }
+    include_state_missing = any(
+        (value is None) or (isinstance(value, str) and not value.strip())
+        for value in state_values
     )
+    state_options = sorted(state_options_set)
+    if include_state_missing:
+        state_options.append(MISSING_OPTION_LABEL)
 
-    city_stmt = select(func.distinct(Paper.city)).where(Paper.city.isnot(None))
+    city_clean = city.strip() if city else None
+    city_missing_selected = False
+    if city_clean == MISSING_OPTION_LABEL:
+        city_missing_selected = True
+        city_clean = None
+
+    city_stmt = select(func.distinct(Paper.city))
     if state_clean:
         city_stmt = city_stmt.where(Paper.state == state_clean)
-    city_options = sorted(
-        {
-            value.strip()
-            for value, in db.execute(city_stmt)
-            if isinstance(value, str) and value.strip()
-        }
+    elif state_missing_selected:
+        city_stmt = city_stmt.where(or_(Paper.state.is_(None), func.trim(Paper.state) == ""))
+
+    city_values = [value for value, in db.execute(city_stmt)]
+    city_options_set = {
+        value.strip()
+        for value in city_values
+        if isinstance(value, str) and value.strip()
+    }
+    include_city_missing = any(
+        (value is None) or (isinstance(value, str) and not value.strip())
+        for value in city_values
     )
+    city_options = sorted(city_options_set)
+    if include_city_missing:
+        city_options.append(MISSING_OPTION_LABEL)
 
     latest_audit_subq = (
         select(
@@ -104,10 +133,14 @@ def list_papers(
 
     conditions = []
 
-    if state_clean:
+    if state_missing_selected:
+        conditions.append(or_(Paper.state.is_(None), func.trim(Paper.state) == ""))
+    elif state_clean:
         conditions.append(Paper.state == state_clean)
 
-    if city_clean:
+    if city_missing_selected:
+        conditions.append(or_(Paper.city.is_(None), func.trim(Paper.city) == ""))
+    elif city_clean:
         conditions.append(Paper.city == city_clean)
 
     audit_filters = {
@@ -151,17 +184,60 @@ def list_papers(
         "paper_name": Paper.paper_name,
         "city": Paper.city,
         "state": Paper.state,
+        "website_url": Paper.website_url,
+        "has_pdf": latest.c.has_pdf,
+        "pdf_only": latest.c.pdf_only,
+        "paywall": latest.c.paywall,
+        "notices": latest.c.notices,
+        "responsive": latest.c.responsive,
+        "chain_owner": latest.c.chain_owner,
+        "cms_platform": latest.c.cms_platform,
+        "cms_vendor": latest.c.cms_vendor,
         "timestamp": latest.c.timestamp,
     }
 
-    sort_key = sortable_columns.get(sort.lower(), Paper.paper_name)
+    sort_lower = sort.lower()
+    sort_key = sortable_columns.get(sort_lower, Paper.paper_name)
     sort_order = order.lower()
-    if sort_order == "desc":
-        order_clause = desc(sort_key).nulls_last()
-    else:
-        order_clause = asc(sort_key).nulls_last()
 
-    stmt = stmt.order_by(order_clause).offset(offset).limit(limit)
+    string_sort_fields = {
+        "paper_name",
+        "city",
+        "state",
+        "website_url",
+        "has_pdf",
+        "pdf_only",
+        "paywall",
+        "notices",
+        "responsive",
+        "chain_owner",
+        "cms_platform",
+        "cms_vendor",
+    }
+
+    missing_condition = sort_key.is_(None)
+    if sort_lower in string_sort_fields:
+        missing_condition = or_(missing_condition, func.trim(sort_key) == "", func.lower(sort_key).like("manual review%"))
+
+    missing_case = case((missing_condition, 0), else_=1)
+    order_expressions = []
+
+    if sort_order == "desc":
+        order_expressions.append(missing_case.desc())
+    else:
+        order_expressions.append(missing_case.asc())
+
+    if sort_lower in string_sort_fields:
+        sort_expression = func.lower(sort_key)
+    else:
+        sort_expression = sort_key
+
+    if sort_order == "desc":
+        order_expressions.append(sort_expression.desc())
+    else:
+        order_expressions.append(sort_expression.asc())
+
+    stmt = stmt.order_by(*order_expressions).offset(offset).limit(limit)
 
     rows = db.execute(stmt).all()
 
@@ -271,7 +347,16 @@ def list_paper_ids(
     db: Session = Depends(get_db),
 ):
     state_clean = state.strip() if state else None
+    state_missing_selected = False
+    if state_clean == MISSING_OPTION_LABEL:
+        state_missing_selected = True
+        state_clean = None
+
     city_clean = city.strip() if city else None
+    city_missing_selected = False
+    if city_clean == MISSING_OPTION_LABEL:
+        city_missing_selected = True
+        city_clean = None
 
     latest_audit_subq = (
         select(
@@ -300,10 +385,14 @@ def list_paper_ids(
 
     conditions = []
 
-    if state_clean:
+    if state_missing_selected:
+        conditions.append(or_(Paper.state.is_(None), func.trim(Paper.state) == ""))
+    elif state_clean:
         conditions.append(Paper.state == state_clean)
 
-    if city_clean:
+    if city_missing_selected:
+        conditions.append(or_(Paper.city.is_(None), func.trim(Paper.city) == ""))
+    elif city_clean:
         conditions.append(Paper.city == city_clean)
 
     audit_filters = {

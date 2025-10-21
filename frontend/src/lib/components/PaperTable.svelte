@@ -156,14 +156,94 @@ function goToLast() {
             {/if}
           </button>
         </th>
-        <th>Website</th>
-        <th>Has PDF</th>
-        <th>Paywall</th>
-        <th>Notices</th>
-        <th>Responsive</th>
-        <th>Chain</th>
-        <th>CMS Platform</th>
-        <th>CMS Vendor</th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('website_url')}
+        >
+          <button type="button" on:click={() => toggleSort('website_url')}>
+            Website
+            {#if sortField === 'website_url'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('has_pdf')}
+        >
+          <button type="button" on:click={() => toggleSort('has_pdf')}>
+            Has PDF
+            {#if sortField === 'has_pdf'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('paywall')}
+        >
+          <button type="button" on:click={() => toggleSort('paywall')}>
+            Paywall
+            {#if sortField === 'paywall'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('notices')}
+        >
+          <button type="button" on:click={() => toggleSort('notices')}>
+            Notices
+            {#if sortField === 'notices'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('responsive')}
+        >
+          <button type="button" on:click={() => toggleSort('responsive')}>
+            Responsive
+            {#if sortField === 'responsive'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('chain_owner')}
+        >
+          <button type="button" on:click={() => toggleSort('chain_owner')}>
+            Chain
+            {#if sortField === 'chain_owner'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('cms_platform')}
+        >
+          <button type="button" on:click={() => toggleSort('cms_platform')}>
+            CMS Platform
+            {#if sortField === 'cms_platform'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('cms_vendor')}
+        >
+          <button type="button" on:click={() => toggleSort('cms_vendor')}>
+            CMS Vendor
+            {#if sortField === 'cms_vendor'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
         <th
           class="sortable"
           aria-sort={columnAriaSort('timestamp')}
