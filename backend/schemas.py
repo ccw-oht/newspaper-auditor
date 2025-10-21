@@ -156,3 +156,7 @@ class ImportCommitResult(BaseModel):
     inserted: int
     updated: int
     skipped: int
+
+
+class ExportRequest(BaseModel):
+    ids: List[int]

@@ -119,3 +119,21 @@ export async function fetchPaperIds(params: Partial<PaperListParams> = {}, fetch
   const query = buildQuery(params);
   return request<PaperIdList>(`/papers/ids${query}`, { fetchImpl, method: HttpMethod.GET });
 }
+
+export async function exportPapers(ids: number[], fetchImpl?: FetchLike): Promise<Blob> {
+  const fetcher = fetchImpl ?? fetch;
+  const response = await fetcher(`${API_BASE_URL}/papers/export`, {
+    method: HttpMethod.POST,
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ ids })
+  });
+
+  if (!response.ok) {
+    const message = await safeErrorMessage(response);
+    throw new Error(message);
+  }
+
+  return response.blob();
+}

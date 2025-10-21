@@ -1,7 +1,11 @@
+import csv
+import io
+import json
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -343,6 +347,119 @@ def list_paper_ids(
 
     ids = [row[0] for row in db.execute(stmt)]
     return schemas.PaperIdList(total=len(ids), ids=ids)
+
+
+@router.post("/export")
+def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db)):
+    if not payload.ids:
+        raise HTTPException(status_code=400, detail="No paper IDs provided")
+
+    latest_audit_subq = (
+        select(
+            Audit.id.label("audit_id"),
+            Audit.paper_id.label("paper_id"),
+            Audit.timestamp.label("timestamp"),
+            Audit.has_pdf.label("has_pdf"),
+            Audit.pdf_only.label("pdf_only"),
+            Audit.paywall.label("paywall"),
+            Audit.notices.label("notices"),
+            Audit.responsive.label("responsive"),
+            Audit.sources.label("sources"),
+            Audit.notes.label("notes"),
+            Audit.chain_owner.label("chain_owner"),
+            Audit.cms_platform.label("cms_platform"),
+            Audit.cms_vendor.label("cms_vendor"),
+            func.row_number()
+            .over(partition_by=Audit.paper_id, order_by=Audit.timestamp.desc())
+            .label("row_number"),
+        )
+    ).subquery()
+
+    latest = latest_audit_subq.alias("latest")
+
+    stmt = (
+        select(Paper, latest)
+        .outerjoin(latest, (Paper.id == latest.c.paper_id) & (latest.c.row_number == 1))
+        .where(Paper.id.in_(payload.ids))
+    )
+
+    rows = db.execute(stmt).all()
+    mapping_by_id = {}
+    for row in rows:
+        mapping = row._mapping
+        paper: Paper = mapping[Paper]
+        mapping_by_id[paper.id] = mapping
+
+    headers = [
+        "Paper ID",
+        "Paper Name",
+        "City",
+        "State",
+        "Website URL",
+        "Phone",
+        "Mailing Address",
+        "County",
+        "Chain Owner",
+        "CMS Platform",
+        "CMS Vendor",
+        "Has PDF Edition?",
+        "PDF-Only?",
+        "Paywall?",
+        "Free Public Notices?",
+        "Mobile Responsive?",
+        "Audit Sources",
+        "Audit Notes",
+        "Latest Audit Timestamp",
+        "Extra Data",
+    ]
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(headers)
+
+    for paper_id in payload.ids:
+        mapping = mapping_by_id.get(paper_id)
+        if not mapping:
+            continue
+
+        paper: Paper = mapping[Paper]
+        timestamp = mapping.get("timestamp")
+        extra = json.dumps(paper.extra_data or {}, ensure_ascii=False)
+
+        row = [
+            paper.id,
+            paper.paper_name or "",
+            paper.city or "",
+            paper.state or "",
+            paper.website_url or "",
+            paper.phone or "",
+            paper.mailing_address or "",
+            paper.county or "",
+            mapping.get("chain_owner") or "",
+            mapping.get("cms_platform") or "",
+            mapping.get("cms_vendor") or "",
+            mapping.get("has_pdf") or "",
+            mapping.get("pdf_only") or "",
+            mapping.get("paywall") or "",
+            mapping.get("notices") or "",
+            mapping.get("responsive") or "",
+            mapping.get("sources") or "",
+            mapping.get("notes") or "",
+            timestamp.isoformat() if timestamp else "",
+            extra,
+        ]
+
+        writer.writerow(row)
+
+    csv_data = buffer.getvalue()
+    buffer.close()
+
+    response = StreamingResponse(
+        iter([csv_data.encode("utf-8")]),
+        media_type="text/csv",
+    )
+    response.headers["Content-Disposition"] = 'attachment; filename="papers_export.csv"'
+    return response
 
 
 def _build_audit_condition(column, normalized: Optional[str]):

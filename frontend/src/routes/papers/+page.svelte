@@ -3,7 +3,7 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { runAudit, fetchPaperIds } from '$lib/api';
+  import { runAudit, fetchPaperIds, exportPapers } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
 
@@ -23,6 +23,8 @@
   let allSelectedAcross = false;
   let bulkLoading = false;
   let bulkError: string | null = null;
+  let exportLoading = false;
+  let exportError: string | null = null;
 
   $: currentSortField = (data.params.sort as string | undefined) ?? 'paper_name';
   $: currentSortOrder = (data.params.order as 'asc' | 'desc' | undefined) === 'desc' ? 'desc' : 'asc';
@@ -46,6 +48,7 @@
     selectedIds = new Set();
     allSelectedAcross = false;
     bulkError = null;
+    exportError = null;
     const search = new URLSearchParams();
     const { detail } = event;
     Object.entries(detail).forEach(([key, value]) => {
@@ -65,6 +68,7 @@
     selectedIds = new Set();
     allSelectedAcross = false;
     bulkError = null;
+    exportError = null;
     await goto('/papers');
   }
 
@@ -99,6 +103,7 @@
     }
     selectedIds = next;
     allSelectedAcross = false;
+    exportError = null;
   }
 
   function updateSelection(ids: number[], checked: boolean) {
@@ -114,6 +119,7 @@
     bulkError = null;
     if (!checked) {
       allSelectedAcross = false;
+      exportError = null;
     }
   }
 
@@ -121,6 +127,7 @@
     updateSelection(event.detail.ids, event.detail.checked);
     if (!event.detail.checked) {
       allSelectedAcross = false;
+      exportError = null;
     }
   }
 
@@ -128,6 +135,7 @@
     updateSelection(event.detail.ids, event.detail.checked);
     if (!event.detail.checked) {
       allSelectedAcross = false;
+      exportError = null;
     }
   }
 
@@ -156,6 +164,7 @@
         next.delete(id);
         selectedIds = next;
         allSelectedAcross = false;
+        exportError = null;
       }
     } catch (error) {
       console.error(error);
@@ -190,6 +199,7 @@
     if (bulkLoading) return;
     bulkLoading = true;
     bulkError = null;
+    exportError = null;
     try {
       const idParams: Partial<PaperListParams> = {
         state: data.params.state,
@@ -211,6 +221,7 @@
     } catch (error) {
       bulkError = error instanceof Error ? error.message : 'Failed to select all results.';
       allSelectedAcross = false;
+      exportError = null;
     } finally {
       bulkLoading = false;
     }
@@ -220,6 +231,31 @@
     selectedIds = new Set();
     allSelectedAcross = false;
     bulkError = null;
+    exportError = null;
+  }
+
+  async function handleExport() {
+    if (selectedIds.size === 0 || exportLoading) {
+      return;
+    }
+    exportLoading = true;
+    exportError = null;
+    try {
+      const ids = Array.from(selectedIds);
+      const blob = await exportPapers(ids);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `papers_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      exportError = error instanceof Error ? error.message : 'Failed to export selection.';
+    } finally {
+      exportLoading = false;
+    }
   }
 </script>
 
@@ -262,6 +298,10 @@
     <p class="error">{bulkError}</p>
   {/if}
 
+  {#if exportError}
+    <p class="error">{exportError}</p>
+  {/if}
+
   <div class="actions">
     <label class="page-size">
       Entries per page
@@ -276,6 +316,9 @@
       {loading
         ? `Running…${progressTotal ? ` (${progressCurrent}/${progressTotal})` : ''}`
         : 'Re-run selected'}
+    </button>
+    <button type="button" on:click={handleExport} disabled={selectedCount === 0 || exportLoading}>
+      {exportLoading ? 'Exporting…' : 'Export CSV'}
     </button>
   </div>
 
