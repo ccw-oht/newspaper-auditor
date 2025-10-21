@@ -13,7 +13,7 @@
   export let sortField: string = 'paper_name';
   export let sortOrder: 'asc' | 'desc' = 'asc';
 
-  const dispatch = createEventDispatcher<{
+const dispatch = createEventDispatcher<{
     audit: { id: number };
     paginate: { offset: number };
     select: { id: number; checked: boolean };
@@ -22,8 +22,11 @@
     sort: { field: string; order: 'asc' | 'desc' };
   }>();
 
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const currentPage = Math.floor(offset / limit) + 1;
+$: safeLimit = limit > 0 ? limit : 1;
+$: totalPages = Math.max(1, Math.ceil(total / safeLimit));
+$: currentPage = Math.floor(offset / safeLimit) + 1;
+$: startEntry = total === 0 ? 0 : Math.min(offset + 1, total);
+$: endEntry = total === 0 ? 0 : Math.min(offset + safeLimit, total);
 
   let selectAllCheckbox: HTMLInputElement | null = null;
   let selectedSet = new Set<number>();
@@ -39,10 +42,19 @@
     }
   }
 
-  function goToPage(page: number) {
-    const target = Math.max(1, Math.min(totalPages, page));
-    dispatch('paginate', { offset: (target - 1) * limit });
-  }
+function goToPage(page: number) {
+  const target = Math.max(1, Math.min(totalPages, page));
+  dispatch('paginate', { offset: (target - 1) * safeLimit });
+}
+
+function goToFirst() {
+  dispatch('paginate', { offset: 0 });
+}
+
+function goToLast() {
+  const lastPage = totalPages;
+  dispatch('paginate', { offset: (lastPage - 1) * safeLimit });
+}
 
   const sortableColumns: Record<string, string> = {
     paper_name: 'Paper',
@@ -217,19 +229,28 @@
   </table>
 
   <div class="pagination">
-    <button type="button" on:click={() => goToPage(currentPage - 1)} disabled={currentPage === 1 || loading}>
-      Previous
-    </button>
-    <span>
-      Page {currentPage} of {totalPages}
-    </span>
-    <button
-      type="button"
-      on:click={() => goToPage(currentPage + 1)}
-      disabled={currentPage === totalPages || loading}
-    >
-      Next
-    </button>
+    <div class="pagination-controls">
+      <button type="button" on:click={goToFirst} disabled={currentPage === 1 || loading}>First</button>
+      <button type="button" on:click={() => goToPage(currentPage - 1)} disabled={currentPage === 1 || loading}>
+        Previous
+      </button>
+      <span class="page-indicator">Page {currentPage} of {totalPages}</span>
+      <button
+        type="button"
+        on:click={() => goToPage(currentPage + 1)}
+        disabled={currentPage === totalPages || loading}
+      >
+        Next
+      </button>
+      <button type="button" on:click={goToLast} disabled={currentPage === totalPages || loading}>Last</button>
+    </div>
+    <div class="pagination-summary">
+      {#if total === 0}
+        <span>No results</span>
+      {:else}
+        <span>Showing {startEntry}&ndash;{endEntry} of {total}</span>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -327,12 +348,26 @@
   .pagination {
     padding: 1rem;
     display: flex;
-    justify-content: flex-end;
-    gap: 1rem;
+    flex-direction: column;
+    gap: 0.75rem;
     align-items: center;
   }
 
-  .pagination span {
+  .pagination-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .page-indicator {
+    font-weight: 600;
+    color: #111827;
+  }
+
+  .pagination-summary {
     color: #4b5563;
+    font-size: 0.9rem;
   }
 </style>

@@ -24,6 +24,13 @@
   $: currentSortField = (data.params.sort as string | undefined) ?? 'paper_name';
   $: currentSortOrder = (data.params.order as 'asc' | 'desc' | undefined) === 'desc' ? 'desc' : 'asc';
 
+  $: {
+    const incomingLimit = Number(data.params.limit ?? 50);
+    if (!Number.isNaN(incomingLimit) && incomingLimit > 0 && incomingLimit !== pageSize) {
+      pageSize = incomingLimit;
+    }
+  }
+
   $: selectedArray = Array.from(selectedIds);
   $: selectedCount = selectedArray.length;
 
@@ -193,7 +200,7 @@
   <PaperTable
     items={data.response.items}
     total={data.response.total}
-    limit={Number(data.params.limit ?? 50)}
+    limit={pageSize}
     offset={Number(data.params.offset ?? 0)}
     on:audit={handleAudit}
     on:paginate={changePage}
