@@ -172,7 +172,6 @@ def detect_chain(homepage_html):
     chain_patterns = {
         "Gannett": [
             "part of the usa today network",
-            "enewspaper",
             "usa today",
             "gannett",
         ],
@@ -479,11 +478,9 @@ def quick_audit(url):
     if cms_vendor == "eType" and cms_platform == "Manual Review":
         cms_platform = "eType"
 
-    if chain_value == "Gannett":
-        if cms_vendor == "Manual Review":
-            cms_vendor = "Gannett"
-        if cms_platform == "Manual Review":
-            cms_platform = "Presto"
+    if chain_value == "Gannett" and cms_vendor == "Manual Review" and cms_platform == "Manual Review":
+        cms_vendor = "Gannett"
+        cms_platform = "Presto"
 
     audit.update({
         "Has PDF Edition?": has_pdf,

@@ -13,10 +13,51 @@
   let auditing = false;
   let selectedAuditId = paper.latest_audit?.id ?? null;
   let selectedAudit: PaperDetail['audits'][number] | null = paper.audits[0] ?? null;
+  let previewExpanded = false;
 
   $: selectedAudit = paper.audits.find((audit) => audit.id === selectedAuditId) ?? paper.audits[0] ?? null;
 
   let form = buildFormValues(paper);
+
+  const summaryFields: { key: keyof PaperDetail['audits'][number]; label: string }[] = [
+    { key: 'has_pdf', label: 'Has PDF' },
+    { key: 'pdf_only', label: 'PDF Only' },
+    { key: 'paywall', label: 'Paywall' },
+    { key: 'notices', label: 'Public Notices' },
+    { key: 'responsive', label: 'Responsive' }
+  ];
+
+  $: auditSummary = selectedAudit
+    ? (() => {
+        const auditRecord = selectedAudit as unknown as Record<string, string | null | undefined>;
+        return summaryFields.map(({ key, label }) => ({
+          label,
+          value: auditRecord[key as string] ?? '—'
+        }));
+      })()
+    : [];
+
+  $: auditNotes = selectedAudit?.notes
+    ? selectedAudit.notes
+        .split('|')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+
+  $: auditSources = selectedAudit?.sources
+    ? selectedAudit.sources
+        .split('+')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+
+  function statusClass(value: string | null | undefined) {
+    const normalized = (value ?? '').toLowerCase();
+    if (normalized.startsWith('yes')) return 'status yes';
+    if (normalized.startsWith('no')) return 'status no';
+    if (normalized.startsWith('manual')) return 'status review';
+    return 'status neutral';
+  }
 
   function buildFormValues(current: PaperDetail) {
     return {
@@ -150,52 +191,59 @@
       <div class="panel audit-info" aria-live="polite">
         <h3>Audit details</h3>
         {#if selectedAudit}
-          <dl>
+          <div class="audit-meta">
             <div>
-              <dt>Audit time</dt>
-              <dd>{new Date(selectedAudit.timestamp).toLocaleString()}</dd>
+              <span class="meta-label">Audit time</span>
+              <span class="meta-value">{new Date(selectedAudit.timestamp).toLocaleString()}</span>
             </div>
             <div>
-              <dt>Has PDF</dt>
-              <dd>{selectedAudit.has_pdf ?? '—'}</dd>
+              <span class="meta-label">Chain owner</span>
+              <span class="meta-value">{selectedAudit.chain_owner ?? '—'}</span>
             </div>
             <div>
-              <dt>PDF only</dt>
-              <dd>{selectedAudit.pdf_only ?? '—'}</dd>
+              <span class="meta-label">CMS platform</span>
+              <span class="meta-value">{selectedAudit.cms_platform ?? '—'}</span>
             </div>
             <div>
-              <dt>Paywall</dt>
-              <dd>{selectedAudit.paywall ?? '—'}</dd>
+              <span class="meta-label">CMS vendor</span>
+              <span class="meta-value">{selectedAudit.cms_vendor ?? '—'}</span>
             </div>
-            <div>
-              <dt>Public notices</dt>
-              <dd>{selectedAudit.notices ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Responsive</dt>
-              <dd>{selectedAudit.responsive ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Chain owner</dt>
-              <dd>{selectedAudit.chain_owner ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>CMS platform</dt>
-              <dd>{selectedAudit.cms_platform ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>CMS vendor</dt>
-              <dd>{selectedAudit.cms_vendor ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Sources</dt>
-              <dd>{selectedAudit.sources ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Notes</dt>
-              <dd>{selectedAudit.notes ?? '—'}</dd>
-            </div>
-          </dl>
+          </div>
+
+          <div class="status-grid">
+            {#each auditSummary as field}
+              <div class={`status-card ${statusClass(field.value)}`}>
+                <span class="label">{field.label}</span>
+                <span class="value">{field.value}</span>
+              </div>
+            {/each}
+          </div>
+
+          <div class="sources">
+            <h4>Sources</h4>
+            {#if auditSources.length === 0}
+              <p class="empty">—</p>
+            {:else}
+              <div class="badges">
+                {#each auditSources as source}
+                  <span class="badge">{source}</span>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          <div class="notes">
+            <h4>Notes</h4>
+            {#if auditNotes.length === 0}
+              <p class="empty">—</p>
+            {:else}
+              <ul>
+                {#each auditNotes as note}
+                  <li>{note}</li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
         {:else}
           <p class="empty">Select an audit to view details.</p>
         {/if}
@@ -204,7 +252,15 @@
       <div class="panel preview">
         <h3>Homepage preview</h3>
         {#if selectedAudit?.homepage_html}
-          <iframe title="Homepage preview" srcdoc={selectedAudit.homepage_html} />
+          <div class={`preview-frame ${previewExpanded ? 'expanded' : ''}`}>
+            <iframe title="Homepage preview" srcdoc={selectedAudit.homepage_html} />
+            {#if !previewExpanded}
+              <div class="fade"></div>
+            {/if}
+          </div>
+          <button class="toggle-preview" type="button" on:click={() => (previewExpanded = !previewExpanded)}>
+            {previewExpanded ? 'Collapse preview' : 'Expand preview'}
+          </button>
         {:else}
           <p class="empty">No snapshot captured for this audit.</p>
         {/if}
@@ -339,27 +395,156 @@
 
   .preview iframe {
     width: 100%;
-    min-height: 480px;
+    border: none;
+  }
+
+  .preview-frame {
+    position: relative;
     border: 1px solid #d1d5db;
-    border-radius: 0.5rem;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    max-height: 420px;
   }
 
-  dl {
+  .preview-frame.expanded {
+    max-height: none;
+  }
+
+  .preview-frame iframe {
+    width: 100%;
+    height: 100%;
+    min-height: 480px;
+  }
+
+  .preview-frame .fade {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    background: linear-gradient(transparent, rgba(255, 255, 255, 0.95));
+    pointer-events: none;
+  }
+
+  .toggle-preview {
+    margin-top: 0.5rem;
+    align-self: flex-start;
+    border: none;
+    background: none;
+    color: #2563eb;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .audit-meta {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 1rem;
+    margin-bottom: 1rem;
   }
 
-  dt {
+  .meta-label {
     font-size: 0.75rem;
     text-transform: uppercase;
     color: #6b7280;
+    letter-spacing: 0.05em;
   }
 
-  dd {
-    margin: 0;
+  .meta-value {
     font-weight: 600;
     color: #111827;
+  }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .status-card {
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    box-shadow: inset 0 0 0 1px #e5e7eb;
+    background: #f9fafb;
+  }
+
+  .status-card .label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    color: #6b7280;
+    letter-spacing: 0.05em;
+  }
+
+  .status-card .value {
+    font-weight: 700;
+    font-size: 1rem;
+  }
+
+  .status.yes {
+    box-shadow: inset 0 0 0 1px rgba(22, 163, 74, 0.25);
+    background: rgba(220, 252, 231, 0.7);
+    color: #166534;
+  }
+
+  .status.no {
+    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.25);
+    background: rgba(254, 226, 226, 0.7);
+    color: #b91c1c;
+  }
+
+  .status.review {
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.25);
+    background: rgba(254, 243, 199, 0.7);
+    color: #b45309;
+  }
+
+  .status.neutral {
+    box-shadow: inset 0 0 0 1px #e5e7eb;
+    background: #f9fafb;
+    color: #374151;
+  }
+
+  .sources,
+  .notes {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .sources h4,
+  .notes h4 {
+    margin: 0;
+    font-size: 0.95rem;
+    color: #1f2937;
+  }
+
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .badge {
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #0c4a6e;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+
+  .notes ul {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: #374151;
+  }
+
+  .notes li {
+    margin-bottom: 0.35rem;
   }
 
   @media (max-width: 960px) {
