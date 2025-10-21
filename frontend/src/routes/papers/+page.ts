@@ -4,13 +4,14 @@ import type { PageLoad } from './$types';
 
 function parseParams(searchParams: URLSearchParams): Partial<PaperListParams> {
   const params: Partial<PaperListParams> = {};
+  const anyParams = params as Record<string, unknown>;
   for (const [key, value] of searchParams.entries()) {
     if (!value) continue;
     if (key === 'limit' || key === 'offset') {
       params[key] = Number(value);
       continue;
     }
-    params[key as keyof PaperListParams] = value;
+    anyParams[key] = value;
   }
   return params;
 }

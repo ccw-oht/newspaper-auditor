@@ -20,6 +20,13 @@ def get_db():
     finally:
         db.close()
 
+
+def _normalize_filter(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned if cleaned else None
+
 @router.get("/", response_model=schemas.PaperListResponse)
 def list_papers(
     state: Optional[str] = Query(default=None, description="Filter by state abbreviation"),
@@ -98,12 +105,6 @@ def list_papers(
 
     if city_clean:
         conditions.append(Paper.city == city_clean)
-
-    def _normalize_filter(value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned if cleaned else None
 
     audit_filters = {
         "has_pdf": has_pdf,
@@ -248,6 +249,100 @@ def list_papers(
     )
 
     return schemas.PaperListResponse(total=total, items=items, options=options)
+
+
+@router.get("/ids", response_model=schemas.PaperIdList)
+def list_paper_ids(
+    state: Optional[str] = Query(default=None),
+    city: Optional[str] = Query(default=None),
+    has_pdf: Optional[str] = Query(default=None),
+    pdf_only: Optional[str] = Query(default=None),
+    paywall: Optional[str] = Query(default=None),
+    notices: Optional[str] = Query(default=None),
+    responsive: Optional[str] = Query(default=None),
+    chain_owner: Optional[str] = Query(default=None),
+    cms_platform: Optional[str] = Query(default=None),
+    cms_vendor: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    state_clean = state.strip() if state else None
+    city_clean = city.strip() if city else None
+
+    latest_audit_subq = (
+        select(
+            Audit.id.label("audit_id"),
+            Audit.paper_id.label("paper_id"),
+            Audit.timestamp.label("timestamp"),
+            Audit.has_pdf.label("has_pdf"),
+            Audit.pdf_only.label("pdf_only"),
+            Audit.paywall.label("paywall"),
+            Audit.notices.label("notices"),
+            Audit.responsive.label("responsive"),
+            Audit.sources.label("sources"),
+            Audit.notes.label("notes"),
+            Audit.chain_owner.label("chain_owner"),
+            Audit.cms_platform.label("cms_platform"),
+            Audit.cms_vendor.label("cms_vendor"),
+            func.row_number()
+            .over(partition_by=Audit.paper_id, order_by=Audit.timestamp.desc())
+            .label("row_number"),
+        )
+    ).subquery()
+
+    latest = latest_audit_subq.alias("latest")
+
+    stmt = select(Paper.id).outerjoin(latest, (Paper.id == latest.c.paper_id) & (latest.c.row_number == 1))
+
+    conditions = []
+
+    if state_clean:
+        conditions.append(Paper.state == state_clean)
+
+    if city_clean:
+        conditions.append(Paper.city == city_clean)
+
+    audit_filters = {
+        "has_pdf": has_pdf,
+        "pdf_only": pdf_only,
+        "paywall": paywall,
+        "notices": notices,
+        "responsive": responsive,
+        "chain_owner": chain_owner,
+        "cms_platform": cms_platform,
+        "cms_vendor": cms_vendor,
+    }
+
+    for column_name, raw_value in audit_filters.items():
+        column = getattr(latest.c, column_name)
+        normalized = _normalize_filter(raw_value)
+        condition = _build_audit_condition(column, normalized)
+        if condition is not None:
+            conditions.append(condition)
+
+    if q:
+        pattern = f"%{q.strip()}%"
+        conditions.append(
+            or_(
+                Paper.paper_name.ilike(pattern),
+                Paper.city.ilike(pattern),
+                Paper.state.ilike(pattern),
+                Paper.county.ilike(pattern),
+                Paper.website_url.ilike(pattern),
+                Paper.phone.ilike(pattern),
+                latest.c.chain_owner.ilike(pattern),
+                latest.c.cms_platform.ilike(pattern),
+                latest.c.cms_vendor.ilike(pattern),
+            )
+        )
+
+    if conditions:
+        stmt = stmt.where(*conditions)
+
+    stmt = stmt.order_by(Paper.id)
+
+    ids = [row[0] for row in db.execute(stmt)]
+    return schemas.PaperIdList(total=len(ids), ids=ids)
 
 
 def _build_audit_condition(column, normalized: Optional[str]):

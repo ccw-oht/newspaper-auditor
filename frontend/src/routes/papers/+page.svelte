@@ -3,7 +3,7 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { runAudit } from '$lib/api';
+  import { runAudit, fetchPaperIds } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
 
@@ -20,6 +20,9 @@
   let progressTotal = 0;
   let currentSortField: string = 'paper_name';
   let currentSortOrder: 'asc' | 'desc' = 'asc';
+  let allSelectedAcross = false;
+  let bulkLoading = false;
+  let bulkError: string | null = null;
 
   $: currentSortField = (data.params.sort as string | undefined) ?? 'paper_name';
   $: currentSortOrder = (data.params.order as 'asc' | 'desc' | undefined) === 'desc' ? 'desc' : 'asc';
@@ -33,9 +36,16 @@
 
   $: selectedArray = Array.from(selectedIds);
   $: selectedCount = selectedArray.length;
+  $: pageIds = data.response.items.map((item) => item.id);
+  $: pageSelectionCount = pageIds.filter((id) => selectedIds.has(id)).length;
+  $: pageFullySelected = pageIds.length > 0 && pageSelectionCount === pageIds.length;
+  $: showSelectAllBanner = pageFullySelected && !allSelectedAcross;
+  $: showAllAcrossBanner = allSelectedAcross && selectedCount > 0;
 
   async function applyFilters(event: CustomEvent<FilterValues>) {
     selectedIds = new Set();
+    allSelectedAcross = false;
+    bulkError = null;
     const search = new URLSearchParams();
     const { detail } = event;
     Object.entries(detail).forEach(([key, value]) => {
@@ -53,6 +63,8 @@
 
   async function resetFilters() {
     selectedIds = new Set();
+    allSelectedAcross = false;
+    bulkError = null;
     await goto('/papers');
   }
 
@@ -86,6 +98,7 @@
       next.delete(event.detail.id);
     }
     selectedIds = next;
+    allSelectedAcross = false;
   }
 
   function updateSelection(ids: number[], checked: boolean) {
@@ -98,14 +111,24 @@
       }
     });
     selectedIds = next;
+    bulkError = null;
+    if (!checked) {
+      allSelectedAcross = false;
+    }
   }
 
   function handleSelectAll(event: CustomEvent<{ ids: number[]; checked: boolean }>) {
     updateSelection(event.detail.ids, event.detail.checked);
+    if (!event.detail.checked) {
+      allSelectedAcross = false;
+    }
   }
 
   function handleSelectRange(event: CustomEvent<{ ids: number[]; checked: boolean }>) {
     updateSelection(event.detail.ids, event.detail.checked);
+    if (!event.detail.checked) {
+      allSelectedAcross = false;
+    }
   }
 
   async function handleBatchAudit() {
@@ -132,6 +155,7 @@
         const next = new Set(selectedIds);
         next.delete(id);
         selectedIds = next;
+        allSelectedAcross = false;
       }
     } catch (error) {
       console.error(error);
@@ -161,6 +185,42 @@
     params.set('offset', '0');
     await goto(`/papers?${params.toString()}`);
   }
+
+  async function selectEntireResult() {
+    if (bulkLoading) return;
+    bulkLoading = true;
+    bulkError = null;
+    try {
+      const idParams: Partial<PaperListParams> = {
+        state: data.params.state,
+        city: data.params.city,
+        has_pdf: data.params.has_pdf,
+        pdf_only: data.params.pdf_only,
+        paywall: data.params.paywall,
+        notices: data.params.notices,
+        responsive: data.params.responsive,
+        chain_owner: data.params.chain_owner,
+        cms_platform: data.params.cms_platform,
+        cms_vendor: data.params.cms_vendor,
+        q: data.params.q,
+      };
+
+      const result = await fetchPaperIds(idParams);
+      selectedIds = new Set(result.ids);
+      allSelectedAcross = true;
+    } catch (error) {
+      bulkError = error instanceof Error ? error.message : 'Failed to select all results.';
+      allSelectedAcross = false;
+    } finally {
+      bulkLoading = false;
+    }
+  }
+
+  function clearSelection() {
+    selectedIds = new Set();
+    allSelectedAcross = false;
+    bulkError = null;
+  }
 </script>
 
 <div class="page">
@@ -179,6 +239,28 @@
     on:filter={applyFilters}
     on:reset={resetFilters}
   />
+
+  {#if showSelectAllBanner}
+    <div class="bulk-banner">
+      <span>All {pageIds.length} items on this page are selected.</span>
+      {#if data.response.total > pageIds.length}
+        <button type="button" on:click={selectEntireResult} disabled={bulkLoading}>
+          {bulkLoading ? 'Selecting…' : `Select all ${data.response.total} items`}
+        </button>
+      {/if}
+    </div>
+  {/if}
+
+  {#if showAllAcrossBanner}
+    <div class="bulk-banner info">
+      <span>All {data.response.total} items are selected.</span>
+      <button type="button" on:click={clearSelection}>Clear selection</button>
+    </div>
+  {/if}
+
+  {#if bulkError}
+    <p class="error">{bulkError}</p>
+  {/if}
 
   <div class="actions">
     <label class="page-size">
@@ -232,12 +314,12 @@
     margin-top: 0.25rem;
   }
 
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 1rem;
-}
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1rem;
+  }
 
 .import-link {
   display: flex;
@@ -285,5 +367,37 @@
     padding: 0.35rem 0.5rem;
     border-radius: 0.5rem;
     border: 1px solid #d1d5db;
+  }
+
+  .bulk-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    background-color: #f3f4ff;
+    border: 1px solid #c7d2fe;
+    color: #1e3a8a;
+  }
+
+  .bulk-banner.info {
+    background-color: #ecfdf5;
+    border-color: #a7f3d0;
+    color: #047857;
+  }
+
+  .bulk-banner button {
+    padding: 0.45rem 0.75rem;
+    border: none;
+    border-radius: 0.5rem;
+    background-color: #2563eb;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .error {
+    color: #b91c1c;
+    font-weight: 600;
   }
 </style>

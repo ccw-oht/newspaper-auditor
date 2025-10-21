@@ -111,6 +111,11 @@ export interface PaperListOptions {
   cmsVendors: string[];
 }
 
+export interface PaperIdList {
+  total: number;
+  ids: number[];
+}
+
 export interface ImportPreviewRow {
   temp_id: string;
   status: string;

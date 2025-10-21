@@ -6,7 +6,8 @@ import type {
   AuditOut,
   ImportPreviewResponse,
   ImportCommitRequest,
-  ImportCommitResult
+  ImportCommitResult,
+  PaperIdList
 } from '$lib/types';
 import { API_BASE_URL } from './config';
 
@@ -112,4 +113,9 @@ export async function commitImport(payload: ImportCommitRequest, fetchImpl?: Fet
     method: HttpMethod.POST,
     body: JSON.stringify(payload)
   });
+}
+
+export async function fetchPaperIds(params: Partial<PaperListParams> = {}, fetchImpl?: FetchLike): Promise<PaperIdList> {
+  const query = buildQuery(params);
+  return request<PaperIdList>(`/papers/ids${query}`, { fetchImpl, method: HttpMethod.GET });
 }

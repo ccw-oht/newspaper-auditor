@@ -6,12 +6,18 @@
 
   export let items: PaperSummary[] = [];
   export let total = 0;
-  export let limit = 50;
-  export let offset = 0;
-  export let loading = false;
-  export let selected: number[] = [];
-  export let sortField: string = 'paper_name';
-  export let sortOrder: 'asc' | 'desc' = 'asc';
+export let limit = 50;
+export let offset = 0;
+export let loading = false;
+export let selected: number[] = [];
+export let sortField: string = 'paper_name';
+export let sortOrder: 'asc' | 'desc' = 'asc';
+
+let safeLimit = limit || 1;
+let totalPages = 1;
+let currentPage = 1;
+let startEntry = 0;
+let endEntry = 0;
 
 const dispatch = createEventDispatcher<{
     audit: { id: number };
@@ -55,13 +61,6 @@ function goToLast() {
   const lastPage = totalPages;
   dispatch('paginate', { offset: (lastPage - 1) * safeLimit });
 }
-
-  const sortableColumns: Record<string, string> = {
-    paper_name: 'Paper',
-    city: 'City',
-    state: 'State',
-    timestamp: 'Last Audit',
-  };
 
   function toggleSort(field: string) {
     const nextOrder: 'asc' | 'desc' = field === sortField ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc';

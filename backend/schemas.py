@@ -88,6 +88,11 @@ class PaperListResponse(BaseModel):
     options: PaperListOptions
 
 
+class PaperIdList(BaseModel):
+    total: int
+    ids: List[int]
+
+
 class PaperDetail(BaseModel):
     id: int
     state: Optional[str] = None
