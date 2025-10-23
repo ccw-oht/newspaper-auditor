@@ -10,12 +10,51 @@ from ..models import Paper, Audit
 
 router = APIRouter()
 
+
+def _should_update_metadata(current: str | None, new_value: str | None) -> bool:
+    if new_value is None:
+        return False
+    new_clean = new_value.strip()
+    if not new_clean:
+        return False
+
+    if current is None:
+        return True
+
+    current_clean = current.strip()
+    if not current_clean:
+        return True
+
+    if current_clean.lower().startswith("manual review"):
+        return True
+
+    return False
+
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def _apply_metadata_updates(paper: Paper, results: dict[str, str | None]) -> None:
+    field_map = {
+        "chain_owner": "Chain Owner",
+        "cms_platform": "CMS Platform",
+        "cms_vendor": "CMS Vendor",
+    }
+
+    for attr, result_key in field_map.items():
+        value = results.get(result_key)
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                value = None
+        current = getattr(paper, attr)
+        if _should_update_metadata(current, value):
+            setattr(paper, attr, value)
 
 @router.post("/batch", response_model=list[schemas.AuditOut])
 def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db)):
@@ -56,9 +95,7 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
         )
         db.add(audit)
         audits.append(audit)
-        paper.chain_owner = results.get("Chain Owner")
-        paper.cms_platform = results.get("CMS Platform")
-        paper.cms_vendor = results.get("CMS Vendor")
+        _apply_metadata_updates(paper, results)
 
     db.commit()
     for audit in audits:
@@ -91,9 +128,7 @@ def audit_one(paper_id: int, db: Session = Depends(get_db)):
         timestamp=datetime.utcnow()
     )
     db.add(audit)
-    paper.chain_owner = results.get("Chain Owner")
-    paper.cms_platform = results.get("CMS Platform")
-    paper.cms_vendor = results.get("CMS Vendor")
+    _apply_metadata_updates(paper, results)
     db.commit()
     db.refresh(audit)
     return audit
