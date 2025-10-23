@@ -1,11 +1,11 @@
 <script lang="ts">
   /* eslint-env browser */
-  import type { PaperSummary } from '$lib/types';
-  import { createEventDispatcher } from 'svelte';
-  import { formatRelativeTime } from '$lib/formatters';
+import type { PaperSummary } from '$lib/types';
+import { createEventDispatcher } from 'svelte';
+import { formatRelativeTime } from '$lib/formatters';
 
-  export let items: PaperSummary[] = [];
-  export let total = 0;
+export let items: PaperSummary[] = [];
+export let total = 0;
 export let limit = 50;
 export let offset = 0;
 export let loading = false;
@@ -107,6 +107,18 @@ function goToLast() {
   function extractChecked(event: Event): boolean {
     const target = event.currentTarget as HTMLInputElement | null;
     return target?.checked ?? false;
+  }
+
+  function normalizeWebsiteUrl(url: string | null | undefined): string | null {
+    if (!url) return null;
+    const trimmed = url.trim();
+    if (!trimmed) return null;
+
+    if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(trimmed)) {
+      return trimmed;
+    }
+
+    return `https://${trimmed.replace(/^\/+/, '')}`;
   }
 </script>
 
@@ -280,8 +292,9 @@ function goToLast() {
             <td>{item.city ?? '—'}</td>
             <td>{item.state ?? '—'}</td>
             <td>
-              {#if item.website_url}
-                <a class="external" href={item.website_url} target="_blank" rel="noreferrer">
+              {@const websiteUrl = normalizeWebsiteUrl(item.website_url)}
+              {#if websiteUrl}
+                <a class="external" href={websiteUrl} target="_blank" rel="noreferrer">
                   Visit
                 </a>
               {:else}

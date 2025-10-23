@@ -5,6 +5,7 @@
   import { runAudit, updatePaper, fetchPaperDetail } from '$lib/api';
   import type { PaperDetail } from '$lib/types';
   import { formatRelativeTime } from '$lib/formatters';
+  import { paperFilterQuery } from '$lib/stores/paperFilters';
 
   export let data: { detail: PaperDetail };
 
@@ -14,8 +15,10 @@
   let selectedAuditId = paper.latest_audit?.id ?? null;
   let selectedAudit: PaperDetail['audits'][number] | null = paper.audits[0] ?? null;
   let previewExpanded = false;
+  let filterQuery = '';
 
   $: selectedAudit = paper.audits.find((audit) => audit.id === selectedAuditId) ?? paper.audits[0] ?? null;
+  $: filterQuery = $paperFilterQuery;
 
   let form = buildFormValues(paper);
 
@@ -115,12 +118,18 @@
     const previewElement = document.querySelector('.preview');
     previewElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  async function backToList() {
+    const query = filterQuery.trim();
+    const target = query ? `/papers?${query}` : '/papers';
+    await goto(target);
+  }
 </script>
 
 <section class="detail">
   <div class="header">
     <div>
-      <button class="back" type="button" on:click={() => goto('/papers')}>← Back to list</button>
+      <button class="back" type="button" on:click={backToList}>← Back to list</button>
       <h2>{paper.paper_name ?? 'Untitled Paper'}</h2>
       <p class="meta">
         {paper.city ?? 'Unknown city'}{paper.state ? `, ${paper.state}` : ''}

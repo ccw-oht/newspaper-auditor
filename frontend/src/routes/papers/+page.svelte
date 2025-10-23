@@ -6,12 +6,18 @@
   import { runAudit, fetchPaperIds, exportPapers } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
+  import { browser } from '$app/environment';
+  import { paperFilterQuery } from '$lib/stores/paperFilters';
 
   export let data: {
     response: PaperListResponse;
     params: Partial<PaperListParams>;
     query: string;
   };
+
+  $: if (browser) {
+    paperFilterQuery.set(data.query);
+  }
 
   let loading = false;
   let selectedIds: Set<number> = new Set();
