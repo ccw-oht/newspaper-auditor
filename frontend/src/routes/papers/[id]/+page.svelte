@@ -14,7 +14,6 @@
   let auditing = false;
   let selectedAuditId = paper.latest_audit?.id ?? null;
   let selectedAudit: PaperDetail['audits'][number] | null = paper.audits[0] ?? null;
-  let previewExpanded = false;
   let filterQuery = '';
 
   $: selectedAudit = paper.audits.find((audit) => audit.id === selectedAuditId) ?? paper.audits[0] ?? null;
@@ -123,6 +122,16 @@
     const query = filterQuery.trim();
     const target = query ? `/papers?${query}` : '/papers';
     await goto(target);
+  }
+
+  function normalizedWebsiteUrl(url: string | null | undefined): string | null {
+    if (!url) return null;
+    const trimmed = url.trim();
+    if (!trimmed) return null;
+    if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(trimmed)) {
+      return trimmed;
+    }
+    return `https://${trimmed.replace(/^\/+/, '')}`;
   }
 </script>
 
@@ -261,17 +270,21 @@
       <div class="panel preview">
         <h3>Homepage preview</h3>
         {#if selectedAudit?.homepage_html}
-          <div class={`preview-frame ${previewExpanded ? 'expanded' : ''}`}>
+          <div class="preview-frame">
             <iframe title="Homepage preview" srcdoc={selectedAudit.homepage_html} />
-            {#if !previewExpanded}
-              <div class="fade"></div>
-            {/if}
           </div>
-          <button class="toggle-preview" type="button" on:click={() => (previewExpanded = !previewExpanded)}>
-            {previewExpanded ? 'Collapse preview' : 'Expand preview'}
-          </button>
         {:else}
           <p class="empty">No snapshot captured for this audit.</p>
+        {/if}
+        {#if normalizedWebsiteUrl(paper.website_url)}
+          <a
+            class="visit-site"
+            href={normalizedWebsiteUrl(paper.website_url) ?? undefined}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Visit Site
+          </a>
         {/if}
       </div>
     </section>
@@ -408,15 +421,10 @@
   }
 
   .preview-frame {
-    position: relative;
     border: 1px solid #d1d5db;
     border-radius: 0.75rem;
-    overflow: hidden;
-    max-height: 420px;
-  }
-
-  .preview-frame.expanded {
-    max-height: none;
+    overflow: auto;
+    max-height: 480px;
   }
 
   .preview-frame iframe {
@@ -425,24 +433,18 @@
     min-height: 480px;
   }
 
-  .preview-frame .fade {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 80px;
-    background: linear-gradient(transparent, rgba(255, 255, 255, 0.95));
-    pointer-events: none;
-  }
-
-  .toggle-preview {
-    margin-top: 0.5rem;
-    align-self: flex-start;
-    border: none;
-    background: none;
+  .visit-site {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.75rem;
     color: #2563eb;
     font-weight: 600;
-    cursor: pointer;
+    text-decoration: none;
+  }
+
+  .visit-site:hover {
+    text-decoration: underline;
   }
 
   .audit-meta {
