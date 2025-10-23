@@ -144,7 +144,12 @@ Responses are serialized via Pydantic schemas (`backend/schemas.py`) and include
   The `-v` flag removes the Postgres volume, wiping all data.
 
 - **Schema adjustments**:
-  Use `psql` to run `ALTER TABLE` statements whenever the SQLAlchemy models change (e.g., dropping unique constraints or adding columns).
+  Use `psql` to run `ALTER TABLE` statements whenever the SQLAlchemy models change (e.g., dropping unique constraints or adding columns). For example, adding the chain/vendor/platform columns introduced in July 2024:
+  ```sql
+  ALTER TABLE papers ADD COLUMN chain_owner TEXT;
+  ALTER TABLE papers ADD COLUMN cms_platform TEXT;
+  ALTER TABLE papers ADD COLUMN cms_vendor TEXT;
+  ```
 
 - **View audit history for a paper**:
   ```sql

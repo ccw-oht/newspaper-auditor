@@ -254,7 +254,7 @@ def detect_cms(homepage_html, sitemap_data):
             "StuffSites": "StuffSites",
             "PubGenAI": "PubGenAI",
             "ePublishing": "ePublishing",
-            "Lion's Light": "Lion's Light",
+            "Lion's Light": "ROAR",
             "Surf New Media": "Surf New Media",
             "Websites For Newspapers": "Websites For Newspapers",
         }

@@ -34,6 +34,9 @@ class PaperOut(BaseModel):
     phone: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
+    chain_owner: Optional[str] = None
+    cms_platform: Optional[str] = None
+    cms_vendor: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
     audits: List[AuditOut] = Field(default_factory=list)
 
@@ -70,6 +73,9 @@ class PaperSummary(BaseModel):
     phone: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
+    chain_owner: Optional[str] = None
+    cms_platform: Optional[str] = None
+    cms_vendor: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
     latest_audit: Optional[AuditSummary] = None
 
@@ -102,6 +108,9 @@ class PaperDetail(BaseModel):
     phone: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
+    chain_owner: Optional[str] = None
+    cms_platform: Optional[str] = None
+    cms_vendor: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
     latest_audit: Optional[AuditSummary] = None
     audits: List[AuditOut] = Field(default_factory=list)
@@ -115,6 +124,9 @@ class PaperUpdate(BaseModel):
     phone: Optional[str] = Field(default=None)
     mailing_address: Optional[str] = Field(default=None)
     county: Optional[str] = Field(default=None)
+    chain_owner: Optional[str] = Field(default=None)
+    cms_platform: Optional[str] = Field(default=None)
+    cms_vendor: Optional[str] = Field(default=None)
     extra_data: Optional[Dict[str, Any]] = Field(default=None)
 
 

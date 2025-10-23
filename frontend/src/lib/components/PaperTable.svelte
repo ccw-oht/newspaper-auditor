@@ -292,9 +292,13 @@ function goToLast() {
             <td>{item.city ?? '—'}</td>
             <td>{item.state ?? '—'}</td>
             <td>
-              {@const websiteUrl = normalizeWebsiteUrl(item.website_url)}
-              {#if websiteUrl}
-                <a class="external" href={websiteUrl} target="_blank" rel="noreferrer">
+              {#if normalizeWebsiteUrl(item.website_url)}
+                <a
+                  class="external"
+                  href={normalizeWebsiteUrl(item.website_url) ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   Visit
                 </a>
               {:else}

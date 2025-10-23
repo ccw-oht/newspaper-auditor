@@ -80,5 +80,8 @@ def _paper_to_dict(paper) -> dict:
         "phone": paper.phone,
         "mailing_address": paper.mailing_address,
         "county": paper.county,
+        "chain_owner": paper.chain_owner,
+        "cms_platform": paper.cms_platform,
+        "cms_vendor": paper.cms_vendor,
         "extra_data": paper.extra_data or {},
     }

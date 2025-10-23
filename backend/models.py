@@ -14,6 +14,9 @@ class Paper(Base):
     phone = Column(String)
     mailing_address = Column(String)
     county = Column(String)
+    chain_owner = Column(String)
+    cms_platform = Column(String)
+    cms_vendor = Column(String)
     extra_data = Column(JSON, default=dict)
 
     audits = relationship("Audit", back_populates="paper")

@@ -31,6 +31,16 @@ def _normalize_filter(value: Optional[str]) -> Optional[str]:
     cleaned = value.strip()
     return cleaned if cleaned else None
 
+
+def _prioritized_value_expr(audit_column, paper_column, label: str):
+    audit_trimmed = func.nullif(func.trim(audit_column), "")
+    paper_trimmed = func.nullif(func.trim(paper_column), "")
+    audit_preferred = case(
+        (func.lower(audit_trimmed).like("manual review%"), None),
+        else_=audit_trimmed,
+    )
+    return func.coalesce(audit_preferred, paper_trimmed, audit_trimmed).label(label)
+
 @router.get("/", response_model=schemas.PaperListResponse)
 def list_papers(
     state: Optional[str] = Query(default=None, description="Filter by state abbreviation"),
@@ -126,8 +136,12 @@ def list_papers(
 
     latest = latest_audit_subq.alias("latest")
 
+    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner_value")
+    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform_value")
+    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor_value")
+
     stmt = (
-        select(Paper, latest)
+        select(Paper, latest, chain_owner_value, cms_platform_value, cms_vendor_value)
         .outerjoin(latest, (Paper.id == latest.c.paper_id) & (latest.c.row_number == 1))
     )
 
@@ -143,7 +157,7 @@ def list_papers(
     elif city_clean:
         conditions.append(Paper.city == city_clean)
 
-    audit_filters = {
+    filter_inputs = {
         "has_pdf": has_pdf,
         "pdf_only": pdf_only,
         "paywall": paywall,
@@ -154,8 +168,19 @@ def list_papers(
         "cms_vendor": cms_vendor,
     }
 
-    for column_name, raw_value in audit_filters.items():
-        column = getattr(latest.c, column_name)
+    filter_columns = {
+        "has_pdf": latest.c.has_pdf,
+        "pdf_only": latest.c.pdf_only,
+        "paywall": latest.c.paywall,
+        "notices": latest.c.notices,
+        "responsive": latest.c.responsive,
+        "chain_owner": chain_owner_value,
+        "cms_platform": cms_platform_value,
+        "cms_vendor": cms_vendor_value,
+    }
+
+    for column_name, raw_value in filter_inputs.items():
+        column = filter_columns[column_name]
         normalized = _normalize_filter(raw_value)
         condition = _build_audit_condition(column, normalized)
         if condition is not None:
@@ -171,9 +196,9 @@ def list_papers(
                 Paper.county.ilike(pattern),
                 Paper.website_url.ilike(pattern),
                 Paper.phone.ilike(pattern),
-                latest.c.chain_owner.ilike(pattern),
-                latest.c.cms_platform.ilike(pattern),
-                latest.c.cms_vendor.ilike(pattern),
+                chain_owner_value.ilike(pattern),
+                cms_platform_value.ilike(pattern),
+                cms_vendor_value.ilike(pattern),
             )
         )
 
@@ -190,9 +215,9 @@ def list_papers(
         "paywall": latest.c.paywall,
         "notices": latest.c.notices,
         "responsive": latest.c.responsive,
-        "chain_owner": latest.c.chain_owner,
-        "cms_platform": latest.c.cms_platform,
-        "cms_vendor": latest.c.cms_vendor,
+        "chain_owner": chain_owner_value,
+        "cms_platform": cms_platform_value,
+        "cms_vendor": cms_vendor_value,
         "timestamp": latest.c.timestamp,
     }
 
@@ -260,10 +285,34 @@ def list_papers(
                 sources=mapping.get("sources"),
                 notes=mapping.get("notes"),
                 homepage_preview=mapping.get("homepage_preview"),
-                chain_owner=mapping.get("chain_owner"),
-                cms_platform=mapping.get("cms_platform"),
-                cms_vendor=mapping.get("cms_vendor"),
+                chain_owner=mapping.get("chain_owner_value"),
+                cms_platform=mapping.get("cms_platform_value"),
+                cms_vendor=mapping.get("cms_vendor_value"),
             )
+        else:
+            fallback_chain = mapping.get("chain_owner_value")
+            fallback_platform = mapping.get("cms_platform_value")
+            fallback_vendor = mapping.get("cms_vendor_value")
+            if any([fallback_chain, fallback_platform, fallback_vendor]):
+                latest_audit = schemas.AuditSummary(
+                    id=None,
+                    timestamp=None,
+                    has_pdf=None,
+                    pdf_only=None,
+                    paywall=None,
+                    notices=None,
+                    responsive=None,
+                    sources=None,
+                    notes=None,
+                    homepage_preview=None,
+                    chain_owner=fallback_chain,
+                    cms_platform=fallback_platform,
+                    cms_vendor=fallback_vendor,
+                )
+
+        combined_chain = mapping.get("chain_owner_value") or paper.chain_owner
+        combined_platform = mapping.get("cms_platform_value") or paper.cms_platform
+        combined_vendor = mapping.get("cms_vendor_value") or paper.cms_vendor
 
         items.append(
             schemas.PaperSummary(
@@ -275,6 +324,9 @@ def list_papers(
                 phone=paper.phone,
                 mailing_address=paper.mailing_address,
                 county=paper.county,
+                chain_owner=combined_chain,
+                cms_platform=combined_platform,
+                cms_vendor=combined_vendor,
                 extra_data=paper.extra_data,
                 latest_audit=latest_audit,
             )
@@ -323,9 +375,9 @@ def list_papers(
     options = schemas.PaperListOptions(
         states=state_options,
         cities=city_options,
-        chainOwners=_distinct_options(latest.c.chain_owner),
-        cmsPlatforms=_distinct_options(latest.c.cms_platform),
-        cmsVendors=_distinct_options(latest.c.cms_vendor),
+        chainOwners=_distinct_options(chain_owner_value),
+        cmsPlatforms=_distinct_options(cms_platform_value),
+        cmsVendors=_distinct_options(cms_vendor_value),
     )
 
     return schemas.PaperListResponse(total=total, items=items, options=options)
@@ -381,7 +433,14 @@ def list_paper_ids(
 
     latest = latest_audit_subq.alias("latest")
 
-    stmt = select(Paper.id).outerjoin(latest, (Paper.id == latest.c.paper_id) & (latest.c.row_number == 1))
+    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner_value")
+    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform_value")
+    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor_value")
+
+    stmt = (
+        select(Paper.id)
+        .outerjoin(latest, (Paper.id == latest.c.paper_id) & (latest.c.row_number == 1))
+    )
 
     conditions = []
 
@@ -395,7 +454,7 @@ def list_paper_ids(
     elif city_clean:
         conditions.append(Paper.city == city_clean)
 
-    audit_filters = {
+    filter_inputs = {
         "has_pdf": has_pdf,
         "pdf_only": pdf_only,
         "paywall": paywall,
@@ -406,8 +465,19 @@ def list_paper_ids(
         "cms_vendor": cms_vendor,
     }
 
-    for column_name, raw_value in audit_filters.items():
-        column = getattr(latest.c, column_name)
+    filter_columns = {
+        "has_pdf": latest.c.has_pdf,
+        "pdf_only": latest.c.pdf_only,
+        "paywall": latest.c.paywall,
+        "notices": latest.c.notices,
+        "responsive": latest.c.responsive,
+        "chain_owner": chain_owner_value,
+        "cms_platform": cms_platform_value,
+        "cms_vendor": cms_vendor_value,
+    }
+
+    for column_name, raw_value in filter_inputs.items():
+        column = filter_columns[column_name]
         normalized = _normalize_filter(raw_value)
         condition = _build_audit_condition(column, normalized)
         if condition is not None:
@@ -423,9 +493,9 @@ def list_paper_ids(
                 Paper.county.ilike(pattern),
                 Paper.website_url.ilike(pattern),
                 Paper.phone.ilike(pattern),
-                latest.c.chain_owner.ilike(pattern),
-                latest.c.cms_platform.ilike(pattern),
-                latest.c.cms_vendor.ilike(pattern),
+                chain_owner_value.ilike(pattern),
+                cms_platform_value.ilike(pattern),
+                cms_vendor_value.ilike(pattern),
             )
         )
 
@@ -466,8 +536,12 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
 
     latest = latest_audit_subq.alias("latest")
 
+    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner_value")
+    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform_value")
+    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor_value")
+
     stmt = (
-        select(Paper, latest)
+        select(Paper, latest, chain_owner_value, cms_platform_value, cms_vendor_value)
         .outerjoin(latest, (Paper.id == latest.c.paper_id) & (latest.c.row_number == 1))
         .where(Paper.id.in_(payload.ids))
     )
@@ -524,9 +598,9 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             paper.phone or "",
             paper.mailing_address or "",
             paper.county or "",
-            mapping.get("chain_owner") or "",
-            mapping.get("cms_platform") or "",
-            mapping.get("cms_vendor") or "",
+            mapping.get("chain_owner_value") or "",
+            mapping.get("cms_platform_value") or "",
+            mapping.get("cms_vendor_value") or "",
             mapping.get("has_pdf") or "",
             mapping.get("pdf_only") or "",
             mapping.get("paywall") or "",
@@ -597,6 +671,9 @@ def update_paper(
         "phone",
         "mailing_address",
         "county",
+        "chain_owner",
+        "cms_platform",
+        "cms_vendor",
     ]:
         if field in updates:
             setattr(paper, field, _clean_str(updates[field]))
@@ -631,8 +708,9 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
     )
 
     latest = audits[0] if audits else None
-    latest_summary = (
-        schemas.AuditSummary(
+    latest_summary = None
+    if latest:
+        latest_summary = schemas.AuditSummary(
             id=latest.id,
             timestamp=latest.timestamp,
             has_pdf=latest.has_pdf,
@@ -647,9 +725,23 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
             cms_platform=latest.cms_platform,
             cms_vendor=latest.cms_vendor,
         )
-        if latest
-        else None
-    )
+    else:
+        if any([paper.chain_owner, paper.cms_platform, paper.cms_vendor]):
+            latest_summary = schemas.AuditSummary(
+                id=None,
+                timestamp=None,
+                has_pdf=None,
+                pdf_only=None,
+                paywall=None,
+                notices=None,
+                responsive=None,
+                sources=None,
+                notes=None,
+                homepage_preview=None,
+                chain_owner=paper.chain_owner,
+                cms_platform=paper.cms_platform,
+                cms_vendor=paper.cms_vendor,
+            )
 
     audit_history = [schemas.AuditOut.from_orm(audit) for audit in audits]
 
@@ -662,6 +754,9 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
         phone=paper.phone,
         mailing_address=paper.mailing_address,
         county=paper.county,
+        chain_owner=paper.chain_owner,
+        cms_platform=paper.cms_platform,
+        cms_vendor=paper.cms_vendor,
         extra_data=paper.extra_data,
         latest_audit=latest_summary,
         audits=audit_history,

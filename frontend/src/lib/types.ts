@@ -35,6 +35,9 @@ export interface PaperSummary {
   phone: string | null;
   mailing_address: string | null;
   county: string | null;
+  chain_owner: string | null;
+  cms_platform: string | null;
+  cms_vendor: string | null;
   extra_data: Record<string, unknown> | null;
   latest_audit: AuditSummary | null;
 }
@@ -54,6 +57,9 @@ export interface PaperDetail {
   phone: string | null;
   mailing_address: string | null;
   county: string | null;
+  chain_owner: string | null;
+  cms_platform: string | null;
+  cms_vendor: string | null;
   extra_data: Record<string, unknown> | null;
   latest_audit: AuditSummary | null;
   audits: AuditOut[];
@@ -67,6 +73,9 @@ export interface PaperUpdatePayload {
   phone?: string | null;
   mailing_address?: string | null;
   county?: string | null;
+  chain_owner?: string | null;
+  cms_platform?: string | null;
+  cms_vendor?: string | null;
   extra_data?: Record<string, unknown> | null;
 }
 

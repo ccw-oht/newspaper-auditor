@@ -14,10 +14,24 @@ COLUMN_ALIASES: Dict[str, Iterable[str]] = {
     "phone": ["phone", "phone number"],
     "mailing_address": ["mailing address", "address"],
     "county": ["county"],
+    "chain_owner": ["chain owner", "owner", "chain"],
+    "cms_platform": ["cms platform", "platform"],
+    "cms_vendor": ["cms vendor", "vendor"],
 }
 
 REQUIRED_FIELDS = {"city", "paper_name"}
-BASE_FIELDS = ["state", "city", "paper_name", "website_url", "phone", "mailing_address", "county"]
+BASE_FIELDS = [
+    "state",
+    "city",
+    "paper_name",
+    "website_url",
+    "phone",
+    "mailing_address",
+    "county",
+    "chain_owner",
+    "cms_platform",
+    "cms_vendor",
+]
 
 
 def normalize_columns(frame: pd.DataFrame) -> pd.DataFrame:

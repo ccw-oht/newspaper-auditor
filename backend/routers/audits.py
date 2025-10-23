@@ -56,6 +56,9 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
         )
         db.add(audit)
         audits.append(audit)
+        paper.chain_owner = results.get("Chain Owner")
+        paper.cms_platform = results.get("CMS Platform")
+        paper.cms_vendor = results.get("CMS Vendor")
 
     db.commit()
     for audit in audits:
@@ -88,6 +91,9 @@ def audit_one(paper_id: int, db: Session = Depends(get_db)):
         timestamp=datetime.utcnow()
     )
     db.add(audit)
+    paper.chain_owner = results.get("Chain Owner")
+    paper.cms_platform = results.get("CMS Platform")
+    paper.cms_vendor = results.get("CMS Vendor")
     db.commit()
     db.refresh(audit)
     return audit
