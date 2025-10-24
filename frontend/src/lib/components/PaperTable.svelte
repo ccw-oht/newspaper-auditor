@@ -401,7 +401,8 @@ function goToLast() {
     background: white;
     border-radius: 0.75rem;
     border: 1px solid #e5e7eb;
-    overflow: hidden;
+    overflow: visible;
+    position: relative;
   }
 
   table {
@@ -411,6 +412,14 @@ function goToLast() {
 
   thead {
     background-color: #f9fafb;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background-color: #f9fafb;
+    box-shadow: inset 0 -1px 0 #e5e7eb;
   }
 
   th,
@@ -443,6 +452,15 @@ function goToLast() {
   th.sortable button:focus {
     background-color: #eef2ff;
     outline: none;
+  }
+
+  thead th.sortable button {
+    background-color: transparent;
+  }
+
+  thead th.sortable button:hover,
+  thead th.sortable button:focus {
+    background-color: #e0e7ff;
   }
 
   .sort-indicator {
