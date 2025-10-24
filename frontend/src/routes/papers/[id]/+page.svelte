@@ -2,7 +2,7 @@
   /* eslint-env browser */
   import { goto, invalidateAll } from '$app/navigation';
   import { tick } from 'svelte';
-  import { runAudit, updatePaper, fetchPaperDetail } from '$lib/api';
+  import { runAudit, updatePaper, fetchPaperDetail, clearAuditResults } from '$lib/api';
   import type { PaperDetail } from '$lib/types';
   import { formatRelativeTime } from '$lib/formatters';
   import { paperFilterQuery } from '$lib/stores/paperFilters';
@@ -12,6 +12,7 @@
   let paper = data.detail;
   let saving = false;
   let auditing = false;
+  let clearing = false;
   let selectedAuditId = paper.latest_audit?.id ?? null;
   let selectedAudit: PaperDetail['audits'][number] | null = paper.audits[0] ?? null;
   let filterQuery = '';
@@ -33,6 +34,7 @@
     ? (() => {
         const auditRecord = selectedAudit as unknown as Record<string, string | null | undefined>;
         return summaryFields.map(({ key, label }) => ({
+          key,
           label,
           value: auditRecord[key as string] ?? '—'
         }));
@@ -53,11 +55,17 @@
         .filter(Boolean)
     : [];
 
-  function statusClass(value: string | null | undefined) {
-    const normalized = (value ?? '').toLowerCase();
-    if (normalized.startsWith('yes')) return 'status yes';
-    if (normalized.startsWith('no')) return 'status no';
+  function statusClass(key: string, value: string | null | undefined) {
+    const normalized = (value ?? '').toString().trim().toLowerCase();
+    if (!normalized || normalized === '—') return 'status neutral';
     if (normalized.startsWith('manual')) return 'status review';
+    const invert = key === 'pdf_only';
+    if (normalized.startsWith('yes')) {
+      return invert ? 'status no' : 'status yes';
+    }
+    if (normalized.startsWith('no')) {
+      return invert ? 'status yes' : 'status no';
+    }
     return 'status neutral';
   }
 
@@ -109,6 +117,26 @@
     }
   }
 
+  async function clearAudit() {
+    if (clearing) return;
+    const confirmed = window.confirm('Clear all stored audit results for this paper?');
+    if (!confirmed) return;
+
+    try {
+      clearing = true;
+      await clearAuditResults(paper.id);
+      await invalidateAll();
+      paper = await fetchPaperDetail(paper.id);
+      form = buildFormValues(paper);
+      selectedAuditId = paper.latest_audit?.id ?? null;
+    } catch (error) {
+      console.error(error);
+      window.alert('Failed to clear audit data');
+    } finally {
+      clearing = false;
+    }
+  }
+
   function viewAudit(id: number) {
     selectedAuditId = id;
   }
@@ -144,9 +172,14 @@
         {paper.city ?? 'Unknown city'}{paper.state ? `, ${paper.state}` : ''}
       </p>
     </div>
-    <button class="audit" type="button" disabled={auditing} on:click={rerunAudit}>
-      {auditing ? 'Running…' : 'Re-run audit'}
-    </button>
+    <div class="header-actions">
+      <button class="audit" type="button" disabled={auditing} on:click={rerunAudit}>
+        {auditing ? 'Running…' : 'Re-run audit'}
+      </button>
+      <button class="audit secondary" type="button" disabled={clearing} on:click={clearAudit}>
+        {clearing ? 'Clearing…' : 'Clear audit data'}
+      </button>
+    </div>
   </div>
 
   <div class="content">
@@ -230,7 +263,7 @@
 
           <div class="status-grid">
             {#each auditSummary as field}
-              <div class={`status-card ${statusClass(field.value)}`}>
+              <div class={`status-card ${statusClass(field.key, field.value)}`}>
                 <span class="label">{field.label}</span>
                 <span class="value">{field.value}</span>
               </div>
@@ -321,6 +354,26 @@
     padding: 0.65rem 1rem;
     font-weight: 600;
     cursor: pointer;
+  }
+
+  .audit:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .audit.secondary {
+    background-color: #f3f4f6;
+    color: #1f2937;
+    border: 1px solid #d1d5db;
+  }
+
+  .audit.secondary[disabled] {
+    color: #9ca3af;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 0.75rem;
   }
 
   .content {

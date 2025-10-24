@@ -120,6 +120,20 @@ function goToLast() {
 
     return `https://${trimmed.replace(/^\/+/, '')}`;
   }
+
+  function statusClass(field: string, value: string | null | undefined): string {
+    const normalized = (value ?? '').toString().trim().toLowerCase();
+    if (!normalized || normalized === '—') return 'status neutral';
+    if (normalized.startsWith('manual')) return 'status review';
+    const invert = field === 'pdf_only';
+    if (normalized.startsWith('yes')) {
+      return invert ? 'status no' : 'status yes';
+    }
+    if (normalized.startsWith('no')) {
+      return invert ? 'status yes' : 'status no';
+    }
+    return 'status neutral';
+  }
 </script>
 
 <div class="table-wrapper">
@@ -186,6 +200,17 @@ function goToLast() {
           <button type="button" on:click={() => toggleSort('has_pdf')}>
             Has PDF
             {#if sortField === 'has_pdf'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th
+          class="sortable"
+          aria-sort={columnAriaSort('pdf_only')}
+        >
+          <button type="button" on:click={() => toggleSort('pdf_only')}>
+            PDF Only
+            {#if sortField === 'pdf_only'}
               <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
             {/if}
           </button>
@@ -273,7 +298,7 @@ function goToLast() {
     <tbody>
       {#if items.length === 0}
         <tr>
-          <td colspan="14" class="empty">No results</td>
+          <td colspan="15" class="empty">No results</td>
         </tr>
       {:else}
         {#each items as item, index}
@@ -305,10 +330,31 @@ function goToLast() {
                 —
               {/if}
             </td>
-            <td>{item.latest_audit?.has_pdf ?? '—'}</td>
-            <td>{item.latest_audit?.paywall ?? '—'}</td>
-            <td>{item.latest_audit?.notices ?? '—'}</td>
-            <td>{item.latest_audit?.responsive ?? '—'}</td>
+            <td>
+              <span class={`status-pill ${statusClass('has_pdf', item.latest_audit?.has_pdf)}`}>
+                {item.latest_audit?.has_pdf ?? '—'}
+              </span>
+            </td>
+            <td>
+              <span class={`status-pill ${statusClass('pdf_only', item.latest_audit?.pdf_only)}`}>
+                {item.latest_audit?.pdf_only ?? '—'}
+              </span>
+            </td>
+            <td>
+              <span class={`status-pill ${statusClass('paywall', item.latest_audit?.paywall)}`}>
+                {item.latest_audit?.paywall ?? '—'}
+              </span>
+            </td>
+            <td>
+              <span class={`status-pill ${statusClass('notices', item.latest_audit?.notices)}`}>
+                {item.latest_audit?.notices ?? '—'}
+              </span>
+            </td>
+            <td>
+              <span class={`status-pill ${statusClass('responsive', item.latest_audit?.responsive)}`}>
+                {item.latest_audit?.responsive ?? '—'}
+              </span>
+            </td>
             <td>{item.latest_audit?.chain_owner ?? '—'}</td>
             <td>{item.latest_audit?.cms_platform ?? '—'}</td>
             <td>{item.latest_audit?.cms_vendor ?? '—'}</td>
@@ -418,6 +464,45 @@ function goToLast() {
 
   a.external {
     color: #2563eb;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border: 1px solid #e5e7eb;
+    background: #f3f4f6;
+    color: #374151;
+    min-width: 3.25rem;
+    text-transform: uppercase;
+  }
+
+  .status-pill.status.yes {
+    border-color: rgba(22, 163, 74, 0.25);
+    background: rgba(220, 252, 231, 0.85);
+    color: #166534;
+  }
+
+  .status-pill.status.no {
+    border-color: rgba(239, 68, 68, 0.25);
+    background: rgba(254, 226, 226, 0.85);
+    color: #b91c1c;
+  }
+
+  .status-pill.status.review {
+    border-color: rgba(245, 158, 11, 0.25);
+    background: rgba(254, 243, 199, 0.85);
+    color: #b45309;
+  }
+
+  .status-pill.status.neutral {
+    border-color: #e5e7eb;
+    background: #f3f4f6;
+    color: #374151;
   }
 
   button {

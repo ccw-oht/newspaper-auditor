@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from .. import schemas
@@ -102,6 +103,20 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
         db.refresh(audit)
 
     return audits
+
+
+@router.delete("/{paper_id}", status_code=204)
+def clear_audit_results(paper_id: int, db: Session = Depends(get_db)):
+    paper = db.get(Paper, paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    db.execute(delete(Audit).where(Audit.paper_id == paper_id))
+    paper.chain_owner = None
+    paper.cms_platform = None
+    paper.cms_vendor = None
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/{paper_id}", response_model=schemas.AuditOut)

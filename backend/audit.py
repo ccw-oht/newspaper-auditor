@@ -81,6 +81,7 @@ cms_vendor_signatures = [
     ("Arc Publishing", ["arc-cdn", "arcpublishing", "thearc", "arc publishing"]),
     ("Brightspot", ["brightspot", "bybrightspot"]),
     ("Our Hometown Web Publishing", ["our-hometown", "ourhometown", "oht-"]),
+    ("Tecnnavia", ["tecnnavia", "newsmemory"]),
 ]
 
 # Snapshot limits
@@ -231,6 +232,9 @@ def detect_cms(homepage_html, sitemap_data):
             sources.append("Homepage")
         notes.extend(vendor_notes)
 
+    if vendor == "Lion's Light":
+        platform = "ROAR"
+
     if platform == "Manual Review":
         sitemap_urls = sitemap_data.get("urls", [])
         for url in sitemap_urls:
@@ -257,6 +261,7 @@ def detect_cms(homepage_html, sitemap_data):
             "Lion's Light": "ROAR",
             "Surf New Media": "Surf New Media",
             "Websites For Newspapers": "Websites For Newspapers",
+            "Tecnnavia": "WordPress",
         }
         platform = implied_platforms.get(vendor, platform)
 

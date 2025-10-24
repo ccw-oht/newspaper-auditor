@@ -16,7 +16,8 @@ type FetchLike = typeof fetch;
 enum HttpMethod {
   GET = 'GET',
   POST = 'POST',
-  PATCH = 'PATCH'
+  PATCH = 'PATCH',
+  DELETE = 'DELETE'
 }
 
 interface RequestOptions extends RequestInit {
@@ -90,6 +91,17 @@ export async function runAuditBatch(ids: number[], fetchImpl?: FetchLike): Promi
     method: HttpMethod.POST,
     body: JSON.stringify({ ids })
   });
+}
+
+export async function clearAuditResults(id: number, fetchImpl?: FetchLike): Promise<void> {
+  const fetcher = fetchImpl ?? fetch;
+  const response = await fetcher(`${API_BASE_URL}/audits/${id}`, {
+    method: HttpMethod.DELETE
+  });
+  if (!response.ok) {
+    const message = await safeErrorMessage(response);
+    throw new Error(message);
+  }
 }
 
 export async function previewImport(file: File, fetchImpl?: FetchLike): Promise<ImportPreviewResponse> {
