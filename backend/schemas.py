@@ -38,6 +38,7 @@ class PaperOut(BaseModel):
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
+    audit_overrides: Optional[Dict[str, Any]] = None
     audits: List[AuditOut] = Field(default_factory=list)
 
     class Config:
@@ -62,6 +63,7 @@ class AuditSummary(BaseModel):
     chain_owner: Optional[str] = None
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
+    overrides: Optional[Dict[str, Any]] = None
 
 
 class PaperSummary(BaseModel):
@@ -77,6 +79,7 @@ class PaperSummary(BaseModel):
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
+    audit_overrides: Optional[Dict[str, Any]] = None
     latest_audit: Optional[AuditSummary] = None
 
 
@@ -128,6 +131,7 @@ class PaperUpdate(BaseModel):
     cms_platform: Optional[str] = Field(default=None)
     cms_vendor: Optional[str] = Field(default=None)
     extra_data: Optional[Dict[str, Any]] = Field(default=None)
+    audit_overrides: Optional[Dict[str, Any]] = Field(default=None)
 
 
 class ImportPreviewRow(BaseModel):

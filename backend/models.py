@@ -18,6 +18,7 @@ class Paper(Base):
     cms_platform = Column(String)
     cms_vendor = Column(String)
     extra_data = Column(JSON, default=dict)
+    audit_overrides = Column(JSON, default=dict)
 
     audits = relationship("Audit", back_populates="paper")
 

@@ -52,6 +52,9 @@ pdf_href_keywords = [
     "print-edition",
     "epost",
     "e-post",
+    "newsmemory",
+    "magazine",
+    "special=",
 ]
 
 cms_platform_signatures = [
@@ -153,6 +156,8 @@ def check_sitemap(base_url):
 def check_rss(base_url):
     rss_paths = ["/feed", "/rss", "/rss.xml", "/index.rss"]
     feed_found, paywall_hint, notices_found = False, False, False
+    entry_count = 0
+    pdf_entry_count = 0
 
     for path in rss_paths:
         rss_url = base_url.rstrip("/") + path
@@ -167,15 +172,65 @@ def check_rss(base_url):
         if any(k in xml_lower for k in public_notice_keywords):
             notices_found = True
 
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError:
+            root = None
+
+        if root is not None:
+            for item in root.findall('.//item'):
+                link_text = None
+                link_elem = item.find('link')
+                if link_elem is not None and link_elem.text:
+                    link_text = link_elem.text.strip()
+                if not link_text:
+                    guid_elem = item.find('guid')
+                    if guid_elem is not None and guid_elem.text:
+                        link_text = guid_elem.text.strip()
+                if not link_text:
+                    enclosure = item.find('enclosure')
+                    if enclosure is not None:
+                        link_text = enclosure.attrib.get('url') or enclosure.attrib.get('href')
+                if link_text:
+                    entry_count += 1
+                    lowered_link = link_text.lower()
+                    if lowered_link.endswith('.pdf') or any(keyword in lowered_link for keyword in pdf_href_keywords):
+                        pdf_entry_count += 1
+
+            atom_ns = '{http://www.w3.org/2005/Atom}'
+            for entry in root.findall(f'.//{atom_ns}entry'):
+                href = None
+                for link in entry.findall(f'{atom_ns}link'):
+                    rel = link.attrib.get('rel')
+                    if rel in (None, 'alternate'):
+                        href = link.attrib.get('href')
+                        if href:
+                            break
+                if not href:
+                    id_elem = entry.find(f'{atom_ns}id')
+                    if id_elem is not None and id_elem.text:
+                        href = id_elem.text.strip()
+                if href:
+                    entry_count += 1
+                    lowered_href = href.lower()
+                    if lowered_href.endswith('.pdf') or any(keyword in lowered_href for keyword in pdf_href_keywords):
+                        pdf_entry_count += 1
+
         break  # first valid feed is enough
 
-    return {"feed_found": feed_found, "paywall_hint": paywall_hint, "notices": notices_found}
+    return {
+        "feed_found": feed_found,
+        "paywall_hint": paywall_hint,
+        "notices": notices_found,
+        "entry_count": entry_count,
+        "pdf_entry_count": pdf_entry_count,
+    }
 
 # --- Feature Detectors ---
 
 def detect_chain(homepage_html):
     if not homepage_html:
-        return "None", [], ["No homepage HTML available"]
+        return "Manual Review", [], ["No homepage HTML available"]
 
     html_lower = homepage_html.lower()
     chain_patterns = {
@@ -198,7 +253,7 @@ def detect_chain(homepage_html):
             note = f"Detected chain indicators ({chain}): {', '.join(matches)}"
             return chain, ["Homepage"], [note]
 
-    return "None", [], []
+    return "Manual Review", [], []
 
 
 def detect_cms(homepage_html, sitemap_data):
@@ -271,23 +326,24 @@ def detect_cms(homepage_html, sitemap_data):
 
     return platform, vendor, sources, notes
 
-def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
+def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor):
     sources, notes = [], []
     has_pdf = None
     pdf_only = "Manual Review"
     data_observed = False
 
+    total_anchors = 0
+    pdf_hint_links: list[str] = []
+    pdf_links: list[str] = []
+
     if homepage_html:
         data_observed = True
         soup = BeautifulSoup(homepage_html, "html.parser")
-        pdf_links = [
-            a["href"]
-            for a in soup.find_all("a", href=True)
-            if a["href"].strip().lower().endswith(".pdf")
-        ]
+        anchors = soup.find_all("a", href=True)
+        total_anchors = len(anchors)
+        pdf_links = [a["href"] for a in anchors if a["href"].strip().lower().endswith(".pdf")]
         if not pdf_links:
-            pdf_hint_links = []
-            for anchor in soup.find_all("a", href=True):
+            for anchor in anchors:
                 anchor_text = (anchor.get_text() or "").strip().lower()
                 href_lower = anchor["href"].strip().lower()
                 if not anchor_text and not href_lower:
@@ -318,18 +374,63 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected):
             notes.append(f"Sitemap shows {sitemap_data['pdf_ratio']:.0%} PDF URLs")
         sources.append("Sitemap")
 
+    pdf_like_count = len(pdf_links) + len(pdf_hint_links)
+    pdf_like_ratio = pdf_like_count / total_anchors if total_anchors else 0.0
+
+    rss_entries = rss_data.get("entry_count", 0)
+    rss_pdf_entries = rss_data.get("pdf_entry_count", 0)
+    rss_has_articles = rss_data.get("feed_found") and (rss_entries - rss_pdf_entries) > 0
+    vendor_is_tecnavia = (cms_vendor or "").strip().lower().startswith("tecnavia")
+
     if rss_data["feed_found"]:
         data_observed = True
         sources.append("RSS")
-        notes.append("RSS present (indicates article content)")
+        if rss_entries == 0:
+            notes.append("RSS present but contains no entries")
+        elif rss_pdf_entries >= rss_entries:
+            notes.append("RSS entries appear to link to PDFs")
+        else:
+            notes.append("RSS present (indicates article content)")
 
     # Decide PDF-only
+    pdf_only_reasons: list[str] = []
+    homepage_pdf_heavy = pdf_like_count >= 3 and pdf_like_ratio >= 0.15
+
     if chain_detected:
         pdf_only = "No"
         notes.append(f"Chain heuristic: {chain_detected}, not PDF-only")
-    elif has_pdf == "Yes" and not rss_data["feed_found"] and sitemap_data["pdf_ratio"] > 0.8:
-        pdf_only = "Yes"
-        notes.append("PDF-only: Sitemap dominated by PDFs and no RSS")
+    elif has_pdf == "Yes":
+        pdf_dominated = sitemap_data["pdf_ratio"] > 0.75
+        rss_lacks_articles = not rss_has_articles
+
+        if pdf_dominated:
+            pdf_only_reasons.append(f"sitemap {sitemap_data['pdf_ratio']:.0%} PDF URLs")
+        if rss_lacks_articles:
+            if rss_entries == 0 and rss_data["feed_found"]:
+                pdf_only_reasons.append("RSS has no entries")
+            elif rss_pdf_entries >= rss_entries and rss_entries > 0:
+                pdf_only_reasons.append("RSS entries point to PDFs")
+            else:
+                pdf_only_reasons.append("RSS lacks article entries")
+        if not sitemap_data["used"]:
+            pdf_only_reasons.append("no sitemap detected")
+        if vendor_is_tecnavia:
+            pdf_only_reasons.append("Tecnavia platform detected")
+            if pdf_like_count:
+                pdf_only_reasons.append("Tecnavia navigation links to PDF viewer")
+            if rss_lacks_articles:
+                pdf_only_reasons.append("Tecnavia feed lacks article entries")
+        if homepage_pdf_heavy:
+            pdf_only_reasons.append("homepage navigation dominated by PDF links")
+
+        if not pdf_only_reasons and vendor_is_tecnavia and rss_lacks_articles:
+            pdf_only_reasons.append("Tecnavia feed lacks article entries")
+
+        if (pdf_only_reasons and rss_lacks_articles) or (vendor_is_tecnavia and (rss_lacks_articles or homepage_pdf_heavy)):
+            pdf_only = "Yes"
+            notes.append("PDF-only: " + "; ".join(dict.fromkeys(pdf_only_reasons)))
+        elif data_observed:
+            pdf_only = "No"
     elif data_observed:
         pdf_only = "No"
 
@@ -451,7 +552,7 @@ def quick_audit(url):
     chain_for_rules = None if chain_value == "Manual Review" else chain_value
 
     has_pdf, pdf_only, pdf_sources, pdf_notes = detect_pdf(
-        homepage_html, sitemap_data, rss_data, chain_for_rules
+        homepage_html, sitemap_data, rss_data, chain_for_rules, cms_vendor
     )
     paywall, paywall_sources, paywall_notes = detect_paywall(
         homepage_html, sitemap_data, rss_data, chain_for_rules

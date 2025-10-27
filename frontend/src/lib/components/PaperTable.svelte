@@ -1,6 +1,6 @@
 <script lang="ts">
   /* eslint-env browser */
-import type { PaperSummary } from '$lib/types';
+import type { AuditSummary, PaperSummary } from '$lib/types';
 import { createEventDispatcher } from 'svelte';
 import { formatRelativeTime } from '$lib/formatters';
 
@@ -133,6 +133,12 @@ function goToLast() {
       return invert ? 'status yes' : 'status no';
     }
     return 'status neutral';
+  }
+
+  function isOverridden(summary: AuditSummary | null | undefined, field: string): boolean {
+    const overrides = summary?.overrides as Record<string, unknown> | undefined;
+    if (!overrides) return false;
+    return overrides[field] !== undefined;
   }
 </script>
 
@@ -331,27 +337,27 @@ function goToLast() {
               {/if}
             </td>
             <td>
-              <span class={`status-pill ${statusClass('has_pdf', item.latest_audit?.has_pdf)}`}>
+              <span class={`status-pill ${statusClass('has_pdf', item.latest_audit?.has_pdf)}${isOverridden(item.latest_audit, 'has_pdf') ? ' overridden' : ''}`}>
                 {item.latest_audit?.has_pdf ?? '—'}
               </span>
             </td>
             <td>
-              <span class={`status-pill ${statusClass('pdf_only', item.latest_audit?.pdf_only)}`}>
+              <span class={`status-pill ${statusClass('pdf_only', item.latest_audit?.pdf_only)}${isOverridden(item.latest_audit, 'pdf_only') ? ' overridden' : ''}`}>
                 {item.latest_audit?.pdf_only ?? '—'}
               </span>
             </td>
             <td>
-              <span class={`status-pill ${statusClass('paywall', item.latest_audit?.paywall)}`}>
+              <span class={`status-pill ${statusClass('paywall', item.latest_audit?.paywall)}${isOverridden(item.latest_audit, 'paywall') ? ' overridden' : ''}`}>
                 {item.latest_audit?.paywall ?? '—'}
               </span>
             </td>
             <td>
-              <span class={`status-pill ${statusClass('notices', item.latest_audit?.notices)}`}>
+              <span class={`status-pill ${statusClass('notices', item.latest_audit?.notices)}${isOverridden(item.latest_audit, 'notices') ? ' overridden' : ''}`}>
                 {item.latest_audit?.notices ?? '—'}
               </span>
             </td>
             <td>
-              <span class={`status-pill ${statusClass('responsive', item.latest_audit?.responsive)}`}>
+              <span class={`status-pill ${statusClass('responsive', item.latest_audit?.responsive)}${isOverridden(item.latest_audit, 'responsive') ? ' overridden' : ''}`}>
                 {item.latest_audit?.responsive ?? '—'}
               </span>
             </td>
@@ -497,6 +503,12 @@ function goToLast() {
     color: #374151;
     min-width: 3.25rem;
     text-transform: uppercase;
+  }
+
+  .status-pill.overridden {
+    border-color: rgba(59, 130, 246, 0.35);
+    background: rgba(219, 234, 254, 0.85);
+    color: #1d4ed8;
   }
 
   .status-pill.status.yes {

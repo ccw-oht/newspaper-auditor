@@ -41,6 +41,47 @@ def _prioritized_value_expr(audit_column, paper_column, label: str):
     )
     return func.coalesce(audit_preferred, paper_trimmed, audit_trimmed).label(label)
 
+
+AUDIT_OVERRIDE_FIELDS = {
+    "has_pdf",
+    "pdf_only",
+    "paywall",
+    "notices",
+    "responsive",
+    "chain_owner",
+    "cms_platform",
+    "cms_vendor",
+}
+
+
+def _apply_overrides_to_summary(paper: Paper, summary: schemas.AuditSummary | None) -> tuple[schemas.AuditSummary | None, dict[str, str | None]]:
+    overrides_raw = paper.audit_overrides or {}
+    if not overrides_raw:
+        return summary, {}
+
+    override_values: dict[str, str | None] = {}
+    for field in AUDIT_OVERRIDE_FIELDS:
+        if field in overrides_raw:
+            value = overrides_raw[field]
+            if isinstance(value, str):
+                override_values[field] = value
+            elif value is None:
+                override_values[field] = None
+            else:
+                override_values[field] = str(value)
+
+    if not override_values:
+        return summary, {}
+
+    if summary is None:
+        summary = schemas.AuditSummary()
+
+    for field, value in override_values.items():
+        setattr(summary, field, value)
+
+    summary.overrides = override_values
+    return summary, override_values
+
 @router.get("/", response_model=schemas.PaperListResponse)
 def list_papers(
     state: Optional[str] = Query(default=None, description="Filter by state abbreviation"),
@@ -310,9 +351,26 @@ def list_papers(
                     cms_vendor=fallback_vendor,
                 )
 
-        combined_chain = mapping.get("chain_owner_value") or paper.chain_owner
-        combined_platform = mapping.get("cms_platform_value") or paper.cms_platform
-        combined_vendor = mapping.get("cms_vendor_value") or paper.cms_vendor
+        latest_audit, _override_map = _apply_overrides_to_summary(paper, latest_audit)
+
+        display_chain = None
+        display_platform = None
+        display_vendor = None
+        if latest_audit:
+            display_chain = latest_audit.chain_owner or mapping.get("chain_owner_value")
+            display_platform = latest_audit.cms_platform or mapping.get("cms_platform_value")
+            display_vendor = latest_audit.cms_vendor or mapping.get("cms_vendor_value")
+        else:
+            display_chain = mapping.get("chain_owner_value")
+            display_platform = mapping.get("cms_platform_value")
+            display_vendor = mapping.get("cms_vendor_value")
+
+        if not display_chain:
+            display_chain = paper.chain_owner
+        if not display_platform:
+            display_platform = paper.cms_platform
+        if not display_vendor:
+            display_vendor = paper.cms_vendor
 
         items.append(
             schemas.PaperSummary(
@@ -324,10 +382,11 @@ def list_papers(
                 phone=paper.phone,
                 mailing_address=paper.mailing_address,
                 county=paper.county,
-                chain_owner=combined_chain,
-                cms_platform=combined_platform,
-                cms_vendor=combined_vendor,
+                chain_owner=display_chain,
+                cms_platform=display_platform,
+                cms_vendor=display_vendor,
                 extra_data=paper.extra_data,
+                audit_overrides=paper.audit_overrides,
                 latest_audit=latest_audit,
             )
         )
@@ -589,6 +648,66 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
         timestamp = mapping.get("timestamp")
         extra = json.dumps(paper.extra_data or {}, ensure_ascii=False)
 
+        latest_audit_summary = None
+        audit_id = mapping.get("audit_id")
+        if audit_id is not None:
+            latest_audit_summary = schemas.AuditSummary(
+                id=audit_id,
+                timestamp=mapping.get("timestamp"),
+                has_pdf=mapping.get("has_pdf"),
+                pdf_only=mapping.get("pdf_only"),
+                paywall=mapping.get("paywall"),
+                notices=mapping.get("notices"),
+                responsive=mapping.get("responsive"),
+                sources=mapping.get("sources"),
+                notes=mapping.get("notes"),
+                chain_owner=mapping.get("chain_owner_value"),
+                cms_platform=mapping.get("cms_platform_value"),
+                cms_vendor=mapping.get("cms_vendor_value"),
+            )
+        else:
+            fallback_chain = mapping.get("chain_owner_value")
+            fallback_platform = mapping.get("cms_platform_value")
+            fallback_vendor = mapping.get("cms_vendor_value")
+            if any([fallback_chain, fallback_platform, fallback_vendor]):
+                latest_audit_summary = schemas.AuditSummary(
+                    id=None,
+                    timestamp=None,
+                    has_pdf=None,
+                    pdf_only=None,
+                    paywall=None,
+                    notices=None,
+                    responsive=None,
+                    sources=None,
+                    notes=None,
+                    chain_owner=fallback_chain,
+                    cms_platform=fallback_platform,
+                    cms_vendor=fallback_vendor,
+                )
+
+        latest_audit_summary, override_map = _apply_overrides_to_summary(paper, latest_audit_summary)
+
+        def _field(summary_value, fallback):
+            return summary_value if summary_value is not None else fallback
+
+        display_chain = _field(latest_audit_summary.chain_owner if latest_audit_summary else None, mapping.get("chain_owner_value"))
+        display_platform = _field(latest_audit_summary.cms_platform if latest_audit_summary else None, mapping.get("cms_platform_value"))
+        display_vendor = _field(latest_audit_summary.cms_vendor if latest_audit_summary else None, mapping.get("cms_vendor_value"))
+
+        has_pdf_value = _field(latest_audit_summary.has_pdf if latest_audit_summary else None, mapping.get("has_pdf"))
+        pdf_only_value = _field(latest_audit_summary.pdf_only if latest_audit_summary else None, mapping.get("pdf_only"))
+        paywall_value = _field(latest_audit_summary.paywall if latest_audit_summary else None, mapping.get("paywall"))
+        notices_value = _field(latest_audit_summary.notices if latest_audit_summary else None, mapping.get("notices"))
+        responsive_value = _field(latest_audit_summary.responsive if latest_audit_summary else None, mapping.get("responsive"))
+
+        sources_value = mapping.get("sources")
+        notes_value = mapping.get("notes")
+        if latest_audit_summary and latest_audit_summary.overrides:
+            # include note about overrides in export notes
+            override_fields = ", ".join(sorted(latest_audit_summary.overrides.keys()))
+            if override_fields:
+                notes_value = (notes_value or "") + (" | " if notes_value else "") + f"Overrides applied: {override_fields}"
+
         row = [
             paper.id,
             paper.paper_name or "",
@@ -598,16 +717,16 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             paper.phone or "",
             paper.mailing_address or "",
             paper.county or "",
-            mapping.get("chain_owner_value") or "",
-            mapping.get("cms_platform_value") or "",
-            mapping.get("cms_vendor_value") or "",
-            mapping.get("has_pdf") or "",
-            mapping.get("pdf_only") or "",
-            mapping.get("paywall") or "",
-            mapping.get("notices") or "",
-            mapping.get("responsive") or "",
-            mapping.get("sources") or "",
-            mapping.get("notes") or "",
+            display_chain or "",
+            display_platform or "",
+            display_vendor or "",
+            has_pdf_value or "",
+            pdf_only_value or "",
+            paywall_value or "",
+            notices_value or "",
+            responsive_value or "",
+            sources_value or "",
+            notes_value or "",
             timestamp.isoformat() if timestamp else "",
             extra,
         ]
@@ -706,6 +825,27 @@ def update_paper(
         else:
             paper.extra_data = {**(paper.extra_data or {}), **extra_value}
 
+    if "audit_overrides" in updates:
+        overrides_value = updates["audit_overrides"]
+        if overrides_value is None:
+            paper.audit_overrides = None
+        elif isinstance(overrides_value, dict):
+            sanitized: dict[str, str | None] = {}
+            for key, value in overrides_value.items():
+                if key not in AUDIT_OVERRIDE_FIELDS:
+                    continue
+                if isinstance(value, str):
+                    cleaned = value.strip()
+                    if cleaned:
+                        sanitized[key] = cleaned
+                elif value is None:
+                    continue
+                else:
+                    sanitized[key] = str(value)
+            paper.audit_overrides = sanitized or None
+        else:
+            raise HTTPException(status_code=400, detail="audit_overrides must be an object or null")
+
     db.add(paper)
     db.commit()
 
@@ -764,6 +904,19 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
                 cms_vendor=paper.cms_vendor,
             )
 
+    latest_summary, override_map = _apply_overrides_to_summary(paper, latest_summary)
+
+    display_chain = paper.chain_owner
+    display_platform = paper.cms_platform
+    display_vendor = paper.cms_vendor
+    if latest_summary:
+        if latest_summary.chain_owner is not None:
+            display_chain = latest_summary.chain_owner
+        if latest_summary.cms_platform is not None:
+            display_platform = latest_summary.cms_platform
+        if latest_summary.cms_vendor is not None:
+            display_vendor = latest_summary.cms_vendor
+
     audit_history = [schemas.AuditOut.from_orm(audit) for audit in audits]
 
     return schemas.PaperDetail(
@@ -775,10 +928,11 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
         phone=paper.phone,
         mailing_address=paper.mailing_address,
         county=paper.county,
-        chain_owner=paper.chain_owner,
-        cms_platform=paper.cms_platform,
-        cms_vendor=paper.cms_vendor,
+        chain_owner=display_chain,
+        cms_platform=display_platform,
+        cms_vendor=display_vendor,
         extra_data=paper.extra_data,
+        audit_overrides=paper.audit_overrides,
         latest_audit=latest_summary,
         audits=audit_history,
     )

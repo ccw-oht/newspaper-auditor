@@ -14,6 +14,7 @@ export interface AuditSummary {
   chain_owner: string | null;
   cms_platform: string | null;
   cms_vendor: string | null;
+  overrides?: Record<string, AuditValue | null | string | undefined> | null;
 }
 
 export interface AuditOut extends AuditSummary {
@@ -39,6 +40,7 @@ export interface PaperSummary {
   cms_platform: string | null;
   cms_vendor: string | null;
   extra_data: Record<string, unknown> | null;
+  audit_overrides: Record<string, AuditValue | null | string | undefined> | null;
   latest_audit: AuditSummary | null;
 }
 
@@ -61,6 +63,7 @@ export interface PaperDetail {
   cms_platform: string | null;
   cms_vendor: string | null;
   extra_data: Record<string, unknown> | null;
+  audit_overrides: Record<string, AuditValue | null | string | undefined> | null;
   latest_audit: AuditSummary | null;
   audits: AuditOut[];
 }
@@ -77,6 +80,7 @@ export interface PaperUpdatePayload {
   cms_platform?: string | null;
   cms_vendor?: string | null;
   extra_data?: Record<string, unknown> | null;
+  audit_overrides?: Record<string, AuditValue | null | string | undefined> | null;
 }
 
 export interface PaperListParams {

@@ -3,7 +3,7 @@
   import { goto, invalidateAll } from '$app/navigation';
   import { tick } from 'svelte';
   import { runAudit, updatePaper, fetchPaperDetail, clearAuditResults } from '$lib/api';
-  import type { PaperDetail } from '$lib/types';
+  import type { PaperDetail, AuditSummary } from '$lib/types';
   import { formatRelativeTime } from '$lib/formatters';
   import { paperFilterQuery } from '$lib/stores/paperFilters';
 
@@ -13,11 +13,21 @@
   let saving = false;
   let auditing = false;
   let clearing = false;
+  let overrideSaving = false;
+  let overrideError: string | null = null;
   let selectedAuditId = paper.latest_audit?.id ?? null;
   let selectedAudit: PaperDetail['audits'][number] | null = paper.audits[0] ?? null;
+  let currentAudit: (PaperDetail['audits'][number] & { overrides?: Record<string, string | null | undefined> | null }) | (AuditSummary & { overrides?: Record<string, string | null | undefined> | null }) | null = paper.latest_audit ?? selectedAudit;
   let filterQuery = '';
 
   $: selectedAudit = paper.audits.find((audit) => audit.id === selectedAuditId) ?? paper.audits[0] ?? null;
+
+  $: currentAudit = (() => {
+    if (paper.latest_audit && (selectedAuditId === null || selectedAuditId === paper.latest_audit.id)) {
+      return paper.latest_audit;
+    }
+    return selectedAudit ?? paper.latest_audit ?? null;
+  })();
   $: filterQuery = $paperFilterQuery;
 
   let form = buildFormValues(paper);
@@ -30,26 +40,76 @@
     { key: 'responsive', label: 'Responsive' }
   ];
 
-  $: auditSummary = selectedAudit
+  type OverrideKey =
+    | 'has_pdf'
+    | 'pdf_only'
+    | 'paywall'
+    | 'notices'
+    | 'responsive'
+    | 'chain_owner'
+    | 'cms_platform'
+    | 'cms_vendor';
+
+  const overrideConfig: { key: OverrideKey; label: string; type: 'select' | 'text' }[] = [
+    { key: 'has_pdf', label: 'Has PDF', type: 'select' },
+    { key: 'pdf_only', label: 'PDF Only', type: 'select' },
+    { key: 'paywall', label: 'Paywall', type: 'select' },
+    { key: 'notices', label: 'Public Notices', type: 'select' },
+    { key: 'responsive', label: 'Responsive', type: 'select' },
+    { key: 'chain_owner', label: 'Chain owner', type: 'text' },
+    { key: 'cms_platform', label: 'CMS platform', type: 'text' },
+    { key: 'cms_vendor', label: 'CMS vendor', type: 'text' }
+  ];
+
+  const overrideSelectOptions = ['', 'Yes', 'No', 'Manual Review'];
+
+  function buildOverrideForm(overrides: Record<string, string | null | undefined> | null | undefined) {
+    const initial: Record<OverrideKey, string> = {
+      has_pdf: '',
+      pdf_only: '',
+      paywall: '',
+      notices: '',
+      responsive: '',
+      chain_owner: '',
+      cms_platform: '',
+      cms_vendor: ''
+    };
+    if (!overrides) return initial;
+    overrideConfig.forEach(({ key }) => {
+      const value = overrides[key];
+      if (typeof value === 'string') {
+        initial[key] = value;
+      } else if (value != null) {
+        initial[key] = String(value);
+      }
+    });
+    return initial;
+  }
+
+  let overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
+
+  $: auditSummary = currentAudit
     ? (() => {
-        const auditRecord = selectedAudit as unknown as Record<string, string | null | undefined>;
+        const auditRecord = currentAudit as unknown as Record<string, string | null | undefined>;
+        const overrides = (currentAudit?.overrides ?? {}) as Record<string, string | null | undefined>;
         return summaryFields.map(({ key, label }) => ({
           key,
           label,
-          value: auditRecord[key as string] ?? '—'
+          value: auditRecord[key as string] ?? '—',
+          overridden: overrides[key as string] !== undefined
         }));
       })()
     : [];
 
-  $: auditNotes = selectedAudit?.notes
-    ? selectedAudit.notes
+  $: auditNotes = currentAudit?.notes
+    ? currentAudit.notes
         .split('|')
         .map((item) => item.trim())
         .filter(Boolean)
     : [];
 
-  $: auditSources = selectedAudit?.sources
-    ? selectedAudit.sources
+  $: auditSources = currentAudit?.sources
+    ? currentAudit.sources
         .split('+')
         .map((item) => item.trim())
         .filter(Boolean)
@@ -90,6 +150,7 @@
       const updated = await updatePaper(paper.id, payload);
       paper = updated;
       form = buildFormValues(paper);
+      overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
       await invalidateAll();
     } catch (error) {
       console.error(error);
@@ -107,6 +168,7 @@
       paper = await fetchPaperDetail(paper.id);
       form = buildFormValues(paper);
       selectedAuditId = paper.latest_audit?.id ?? selectedAuditId;
+      overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
       await tick();
       scrollPreviewIntoView();
     } catch (error) {
@@ -129,6 +191,7 @@
       paper = await fetchPaperDetail(paper.id);
       form = buildFormValues(paper);
       selectedAuditId = paper.latest_audit?.id ?? null;
+      overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
     } catch (error) {
       console.error(error);
       window.alert('Failed to clear audit data');
@@ -160,6 +223,43 @@
       return trimmed;
     }
     return `https://${trimmed.replace(/^\/+/, '')}`;
+  }
+
+  async function saveOverrides() {
+    if (overrideSaving) return;
+    overrideSaving = true;
+    overrideError = null;
+    try {
+      const overridesPayload: Record<string, string> = {};
+      overrideConfig.forEach(({ key, type }) => {
+        const rawValue = overrideForm[key];
+        if (type === 'select') {
+          if (rawValue && rawValue.trim()) {
+            overridesPayload[key] = rawValue.trim();
+          }
+        } else {
+          const cleaned = rawValue?.trim();
+          if (cleaned) {
+            overridesPayload[key] = cleaned;
+          }
+        }
+      });
+
+      await updatePaper(paper.id, {
+        audit_overrides: Object.keys(overridesPayload).length > 0 ? overridesPayload : null
+      });
+
+      paper = await fetchPaperDetail(paper.id);
+      form = buildFormValues(paper);
+      overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
+      selectedAuditId = paper.latest_audit?.id ?? selectedAuditId;
+      await invalidateAll();
+    } catch (error) {
+      console.error(error);
+      overrideError = error instanceof Error ? error.message : 'Failed to save overrides';
+    } finally {
+      overrideSaving = false;
+    }
   }
 </script>
 
@@ -241,30 +341,35 @@
     <section class="main">
       <div class="panel audit-info" aria-live="polite">
         <h3>Audit details</h3>
-        {#if selectedAudit}
+        {#if currentAudit}
           <div class="audit-meta">
             <div>
               <span class="meta-label">Audit time</span>
-              <span class="meta-value">{new Date(selectedAudit.timestamp).toLocaleString()}</span>
+              <span class="meta-value">{currentAudit.timestamp ? new Date(currentAudit.timestamp).toLocaleString() : '—'}</span>
             </div>
             <div>
               <span class="meta-label">Chain owner</span>
-              <span class="meta-value">{selectedAudit.chain_owner ?? '—'}</span>
+              <span class="meta-value">{currentAudit.chain_owner ?? '—'}</span>
             </div>
             <div>
               <span class="meta-label">CMS platform</span>
-              <span class="meta-value">{selectedAudit.cms_platform ?? '—'}</span>
+              <span class="meta-value">{currentAudit.cms_platform ?? '—'}</span>
             </div>
             <div>
               <span class="meta-label">CMS vendor</span>
-              <span class="meta-value">{selectedAudit.cms_vendor ?? '—'}</span>
+              <span class="meta-value">{currentAudit.cms_vendor ?? '—'}</span>
             </div>
           </div>
 
           <div class="status-grid">
             {#each auditSummary as field}
-              <div class={`status-card ${statusClass(field.key, field.value)}`}>
-                <span class="label">{field.label}</span>
+              <div class={`status-card ${statusClass(field.key, field.value)}${field.overridden ? ' overridden' : ''}`}>
+                <span class="label">
+                  {field.label}
+                  {#if field.overridden}
+                    <span class="override-flag">Override</span>
+                  {/if}
+                </span>
                 <span class="value">{field.value}</span>
               </div>
             {/each}
@@ -319,6 +424,35 @@
             Visit Site
           </a>
         {/if}
+      </div>
+
+      <div class="panel overrides">
+        <h3>Audit overrides</h3>
+        <p class="hint">Use these fields to override automated audit results. Leave blank to rely on the latest audit.</p>
+        <form class="override-form" on:submit|preventDefault={saveOverrides}>
+          <div class="override-grid">
+            {#each overrideConfig as field}
+              <label>
+                {field.label}
+                {#if field.type === 'select'}
+                  <select bind:value={overrideForm[field.key]}>
+                    {#each overrideSelectOptions as option}
+                      <option value={option}>{option || 'Use audit result'}</option>
+                    {/each}
+                  </select>
+                {:else}
+                  <input type="text" bind:value={overrideForm[field.key]} placeholder="Use audit result" />
+                {/if}
+              </label>
+            {/each}
+          </div>
+          {#if overrideError}
+            <p class="error">{overrideError}</p>
+          {/if}
+          <button type="submit" class="override-save" disabled={overrideSaving}>
+            {overrideSaving ? 'Saving…' : 'Save overrides'}
+          </button>
+        </form>
       </div>
     </section>
   </div>
@@ -500,6 +634,62 @@
     text-decoration: underline;
   }
 
+  .panel.overrides {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .panel.overrides .hint {
+    color: #6b7280;
+    margin: 0;
+    font-size: 0.9rem;
+  }
+
+  .override-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .override-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+
+  .override-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    color: #374151;
+  }
+
+  .override-grid select,
+  .override-grid input {
+    padding: 0.45rem 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid #d1d5db;
+    font-size: 0.9rem;
+  }
+
+  .override-save {
+    align-self: flex-start;
+    padding: 0.55rem 1.1rem;
+    border-radius: 0.5rem;
+    border: none;
+    background-color: #2563eb;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .override-save[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   .audit-meta {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -536,6 +726,10 @@
     background: #f9fafb;
   }
 
+  .status-card.overridden {
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.35);
+  }
+
   .status-card .label {
     font-size: 0.75rem;
     text-transform: uppercase;
@@ -546,6 +740,16 @@
   .status-card .value {
     font-weight: 700;
     font-size: 1rem;
+  }
+
+  .override-flag {
+    margin-left: 0.35rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #1d4ed8;
+    font-size: 0.6rem;
+    letter-spacing: 0.05em;
   }
 
   .status.yes {
