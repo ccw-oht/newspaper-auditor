@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import asc, case, desc, func, or_, select
+from sqlalchemy import asc, case, delete, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import schemas
@@ -623,6 +623,27 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
     )
     response.headers["Content-Disposition"] = 'attachment; filename="papers_export.csv"'
     return response
+
+
+@router.post("/delete", response_model=schemas.BulkDeleteResult)
+def delete_papers(payload: schemas.PaperDeleteRequest, db: Session = Depends(get_db)):
+    if not payload.ids:
+        raise HTTPException(status_code=400, detail="No paper IDs provided")
+
+    unique_ids = sorted({int(pid) for pid in payload.ids if pid is not None})
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="No valid paper IDs provided")
+
+    existing_ids = [value for value, in db.execute(select(Paper.id).where(Paper.id.in_(unique_ids)))]
+    if not existing_ids:
+        return schemas.BulkDeleteResult(deleted=0)
+
+    db.execute(delete(Audit).where(Audit.paper_id.in_(existing_ids)))
+    result = db.execute(delete(Paper).where(Paper.id.in_(existing_ids)))
+    db.commit()
+
+    deleted_count = result.rowcount or 0
+    return schemas.BulkDeleteResult(deleted=deleted_count)
 
 
 def _build_audit_condition(column, normalized: Optional[str]):

@@ -172,3 +172,11 @@ class ImportCommitResult(BaseModel):
 
 class ExportRequest(BaseModel):
     ids: List[int]
+
+
+class PaperDeleteRequest(BaseModel):
+    ids: List[int]
+
+
+class BulkDeleteResult(BaseModel):
+    deleted: int

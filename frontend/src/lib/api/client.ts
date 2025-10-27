@@ -7,7 +7,8 @@ import type {
   ImportPreviewResponse,
   ImportCommitRequest,
   ImportCommitResult,
-  PaperIdList
+  PaperIdList,
+  BulkDeleteResult
 } from '$lib/types';
 import { API_BASE_URL } from './config';
 
@@ -148,4 +149,12 @@ export async function exportPapers(ids: number[], fetchImpl?: FetchLike): Promis
   }
 
   return response.blob();
+}
+
+export async function deletePapers(ids: number[], fetchImpl?: FetchLike): Promise<BulkDeleteResult> {
+  return request<BulkDeleteResult>(`/papers/delete`, {
+    fetchImpl,
+    method: HttpMethod.POST,
+    body: JSON.stringify({ ids })
+  });
 }

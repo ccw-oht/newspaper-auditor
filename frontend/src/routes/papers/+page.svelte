@@ -3,7 +3,7 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { runAudit, fetchPaperIds, exportPapers } from '$lib/api';
+  import { runAudit, fetchPaperIds, exportPapers, deletePapers } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
   import { browser } from '$app/environment';
@@ -31,6 +31,8 @@
   let bulkError: string | null = null;
   let exportLoading = false;
   let exportError: string | null = null;
+  let deleteLoading = false;
+  let deleteError: string | null = null;
 
   $: currentSortField = (data.params.sort as string | undefined) ?? 'paper_name';
   $: currentSortOrder = (data.params.order as 'asc' | 'desc' | undefined) === 'desc' ? 'desc' : 'asc';
@@ -55,6 +57,7 @@
     allSelectedAcross = false;
     bulkError = null;
     exportError = null;
+    deleteError = null;
     const search = new URLSearchParams();
     const { detail } = event;
     Object.entries(detail).forEach(([key, value]) => {
@@ -72,9 +75,10 @@
 
   async function resetFilters() {
     selectedIds = new Set();
-    allSelectedAcross = false;
+   allSelectedAcross = false;
     bulkError = null;
     exportError = null;
+    deleteError = null;
     await goto('/papers');
   }
 
@@ -110,6 +114,7 @@
     selectedIds = next;
     allSelectedAcross = false;
     exportError = null;
+    deleteError = null;
   }
 
   function updateSelection(ids: number[], checked: boolean) {
@@ -126,6 +131,7 @@
     if (!checked) {
       allSelectedAcross = false;
       exportError = null;
+      deleteError = null;
     }
   }
 
@@ -134,6 +140,7 @@
     if (!event.detail.checked) {
       allSelectedAcross = false;
       exportError = null;
+      deleteError = null;
     }
   }
 
@@ -142,6 +149,7 @@
     if (!event.detail.checked) {
       allSelectedAcross = false;
       exportError = null;
+      deleteError = null;
     }
   }
 
@@ -154,6 +162,7 @@
       loading = true;
       progressTotal = selectedArray.length;
       progressCurrent = 0;
+      deleteError = null;
 
       for (const id of selectedArray) {
         try {
@@ -171,6 +180,7 @@
         selectedIds = next;
         allSelectedAcross = false;
         exportError = null;
+        deleteError = null;
       }
     } catch (error) {
       console.error(error);
@@ -206,6 +216,7 @@
     bulkLoading = true;
     bulkError = null;
     exportError = null;
+    deleteError = null;
     try {
       const idParams: Partial<PaperListParams> = {
         state: data.params.state,
@@ -228,6 +239,7 @@
       bulkError = error instanceof Error ? error.message : 'Failed to select all results.';
       allSelectedAcross = false;
       exportError = null;
+      deleteError = null;
     } finally {
       bulkLoading = false;
     }
@@ -238,6 +250,7 @@
     allSelectedAcross = false;
     bulkError = null;
     exportError = null;
+    deleteError = null;
   }
 
   async function handleExport() {
@@ -246,6 +259,7 @@
     }
     exportLoading = true;
     exportError = null;
+    deleteError = null;
     try {
       const ids = Array.from(selectedIds);
       const blob = await exportPapers(ids);
@@ -261,6 +275,36 @@
       exportError = error instanceof Error ? error.message : 'Failed to export selection.';
     } finally {
       exportLoading = false;
+    }
+  }
+
+  async function handleDeleteSelected() {
+    if (selectedIds.size === 0 || deleteLoading) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${selectedIds.size} selected paper${selectedIds.size === 1 ? '' : 's'} and all associated audits?`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    deleteLoading = true;
+    deleteError = null;
+    try {
+      const ids = Array.from(selectedIds);
+      await deletePapers(ids);
+      selectedIds = new Set();
+      allSelectedAcross = false;
+      bulkError = null;
+      exportError = null;
+      await invalidateAll();
+    } catch (error) {
+      console.error(error);
+      deleteError = error instanceof Error ? error.message : 'Failed to delete selected papers.';
+    } finally {
+      deleteLoading = false;
     }
   }
 </script>
@@ -304,6 +348,10 @@
     <p class="error">{exportError}</p>
   {/if}
 
+  {#if deleteError}
+    <p class="error">{deleteError}</p>
+  {/if}
+
   <div class="actions">
     <label class="page-size">
       Entries per page
@@ -321,6 +369,14 @@
     </button>
     <button type="button" on:click={handleExport} disabled={selectedCount === 0 || exportLoading}>
       {exportLoading ? 'Exporting…' : 'Export CSV'}
+    </button>
+    <button
+      type="button"
+      class="danger"
+      on:click={handleDeleteSelected}
+      disabled={selectedCount === 0 || deleteLoading}
+    >
+      {deleteLoading ? 'Deleting…' : 'Delete selected'}
     </button>
   </div>
 
@@ -398,6 +454,14 @@
   .actions button[disabled] {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .actions button.danger {
+    background-color: #dc2626;
+  }
+
+  .actions button.danger[disabled] {
+    background-color: #dc2626;
   }
 
   .page-size {

@@ -64,6 +64,7 @@ cms_platform_signatures = [
     ("eType", ["etype.services", "etype1", "etype services"]),
     ("Brightspot", ["brightspot", "bybrightspot"]),
     ("NewsPack", ["newspack", "automattic", "wpengine"]),
+    ("Tecnavia", ["tecnavia", "newsmemory"]),
 ]
 
 cms_vendor_signatures = [
@@ -81,7 +82,6 @@ cms_vendor_signatures = [
     ("Arc Publishing", ["arc-cdn", "arcpublishing", "thearc", "arc publishing"]),
     ("Brightspot", ["brightspot", "bybrightspot"]),
     ("Our Hometown Web Publishing", ["our-hometown", "ourhometown", "oht-"]),
-    ("Tecnnavia", ["tecnnavia", "newsmemory"]),
 ]
 
 # Snapshot limits
@@ -261,7 +261,6 @@ def detect_cms(homepage_html, sitemap_data):
             "Lion's Light": "ROAR",
             "Surf New Media": "Surf New Media",
             "Websites For Newspapers": "Websites For Newspapers",
-            "Tecnnavia": "WordPress",
         }
         platform = implied_platforms.get(vendor, platform)
 

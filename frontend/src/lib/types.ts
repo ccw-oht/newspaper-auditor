@@ -164,3 +164,7 @@ export interface ImportCommitResult {
   updated: number;
   skipped: number;
 }
+
+export interface BulkDeleteResult {
+  deleted: number;
+}
