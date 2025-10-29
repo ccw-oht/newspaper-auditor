@@ -1,10 +1,12 @@
 import argparse
+import time
 from pathlib import Path
 
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
+from urllib.parse import urlparse, urlunparse, urlencode
 
 # Keywords/signals
 paywall_keywords = [
@@ -57,7 +59,32 @@ pdf_href_keywords = [
     "special=",
 ]
 
+article_href_keywords = [
+    "article",
+    "story",
+    "news",
+    "sports",
+    "business",
+    "lifestyle",
+    "politics",
+    "community",
+    "feature",
+    "opinion",
+    "entertainment",
+    "/202",
+]
+
+article_class_keywords = [
+    "article",
+    "story",
+    "news",
+    "post",
+    "entry",
+    "card",
+]
+
 cms_platform_signatures = [
+    ("Creative Circle", ["creativecircle", "circle-media", "circleid", "/stories/", "creativecirclecdn"]),
     ("BLOX Digital", ["tncms", "bloximages", "townnews", "bloxcms"]),
     ("WordPress", ["wp-content", "wp-includes", "wordpress", "wp-json", "wp-sitemap"]),
     ("Drupal", ["drupal.settings", "drupal-settings-json", "drupal"]),
@@ -66,12 +93,12 @@ cms_platform_signatures = [
     ("Presto", ["presto-content", "gannett-cdn", "gdn-presto", "gannettdigital"]),
     ("eType", ["etype.services", "etype1", "etype services"]),
     ("Brightspot", ["brightspot", "bybrightspot"]),
-    ("NewsPack", ["newspack", "automattic", "wpengine"]),
+    ("NewsPack", ["newspack", "wpengine"]),
     ("Tecnavia", ["tecnavia", "newsmemory"]),
 ]
 
 cms_vendor_signatures = [
-    ("Creative Circle", ["creativecircle", "circle-media", "circleid"]),
+    ("Creative Circle", ["creativecircle", "circle-media", "circleid", "/stories/", "creativecirclecdn"]),
     ("ePublishing", ["epublishing", "epubcorp", "epublishing.com", "cld.bz"]),
     ("eType", ["etype.services", "etype services", "etype1"]),
     ("Lion's Light", ["lionslight", "lion's light", "lions-light"]),
@@ -79,7 +106,7 @@ cms_vendor_signatures = [
     ("Websites For Newspapers", ["websitesfornewspapers", "wfnpro", "wfnp"]),
     ("BLOX", ["tncms", "bloximages", "townnews", "bloxcms"]),
     ("Gannett", ["gannett", "gannett-cdn", "gannettdigital", "presto-content"]),
-    ("NewsPack", ["newspack", "automattic", "wpengine"]),
+    ("NewsPack", ["newspack", "wpengine"]),
     ("StuffSites", ["stuffsites", "stuff sites"]),
     ("PubGenAI", ["pubgenai", "pubgen.ai", "pubgen"]),
     ("Arc Publishing", ["arc-cdn", "arcpublishing", "thearc", "arc publishing"]),
@@ -107,14 +134,49 @@ def sanitize_homepage_snapshot(
 
 
 # Helper: fetch a URL safely, capturing status information
-def fetch_url(url, timeout=6):
-    try:
-        resp = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
-        if resp.status_code == 200:
-            return resp.text, resp.status_code, None
-        return None, resp.status_code, None
-    except Exception as exc:
-        return None, None, str(exc)
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/118.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+}
+
+REQUEST_PAUSE_SECONDS = 0.75
+
+
+def fetch_url(url, timeout=8, headers=None, retries=2, backoff=1.5):
+    headers = headers or DEFAULT_HEADERS
+    last_error = None
+    current_url = url
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(current_url, timeout=timeout, headers=headers, allow_redirects=True)
+            if resp.status_code == 403 and current_url.startswith("http://"):
+                # retry once with https if forbidden over http
+                https_url = "https://" + current_url[len("http://"):]
+                current_url = https_url
+                continue
+            if resp.status_code == 403 and attempt < retries:
+                last_error = f"HTTP 403 for {current_url}"
+                time.sleep(backoff * (attempt + 1))
+                continue
+            if resp.status_code == 429 and attempt < retries:
+                last_error = f"HTTP 429 for {current_url}"
+                time.sleep(backoff * (attempt + 1))
+                continue
+            if resp.status_code == 200:
+                return resp.text, resp.status_code, None
+            last_error = f"HTTP {resp.status_code}"
+            return None, resp.status_code, None
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt == retries:
+                return None, None, last_error
+    return None, None, last_error
 
 # Helper: check sitemap.xml
 def check_sitemap(base_url):
@@ -159,9 +221,32 @@ def check_rss(base_url):
     entry_count = 0
     pdf_entry_count = 0
 
-    for path in rss_paths:
-        rss_url = base_url.rstrip("/") + path
-        xml_text, status_code, _ = fetch_url(rss_url, timeout=6)
+    base_trimmed = base_url.rstrip('/')
+    candidates: list[str] = [base_trimmed + path for path in rss_paths]
+
+    parsed = urlparse(base_url)
+    if parsed.netloc:
+        path_segments = [segment for segment in parsed.path.strip('/').split('/') if segment]
+        if path_segments:
+            slug = path_segments[-1]
+            query = urlencode({
+                "f": "rss",
+                "t": "article",
+                "c": slug,
+                "l": "50",
+                "s": "start_time",
+                "sd": "desc",
+            })
+            scheme = parsed.scheme or "https"
+            alt_url = urlunparse((scheme, parsed.netloc, "/search/", "", query, ""))
+            candidates.append(alt_url)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        xml_text, status_code, _ = fetch_url(candidate, timeout=8)
         if status_code != 200 or not xml_text:
             continue
 
@@ -335,6 +420,8 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
     total_anchors = 0
     pdf_hint_links: list[str] = []
     pdf_links: list[str] = []
+    article_hint_links: list[str] = []
+    article_dom_signals = 0
 
     if homepage_html:
         data_observed = True
@@ -342,30 +429,48 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
         anchors = soup.find_all("a", href=True)
         total_anchors = len(anchors)
         pdf_links = [a["href"] for a in anchors if a["href"].strip().lower().endswith(".pdf")]
-        if not pdf_links:
-            for anchor in anchors:
-                anchor_text = (anchor.get_text() or "").strip().lower()
-                href_lower = anchor["href"].strip().lower()
-                if not anchor_text and not href_lower:
-                    continue
+        for anchor in anchors:
+            anchor_text = (anchor.get_text() or "").strip().lower()
+            href_lower = anchor["href"].strip().lower()
+            if not anchor_text and not href_lower:
+                continue
 
-                text_match = any(keyword in anchor_text for keyword in pdf_homepage_keywords)
-                href_match = any(keyword in href_lower for keyword in pdf_href_keywords)
-                if text_match or href_match:
-                    pdf_hint_links.append(anchor["href"])
+            text_match = any(keyword in anchor_text for keyword in pdf_homepage_keywords)
+            href_match = any(keyword in href_lower for keyword in pdf_href_keywords)
+            if not pdf_links and (text_match or href_match):
+                pdf_hint_links.append(anchor["href"])
 
-            if pdf_hint_links:
-                has_pdf = "Yes"
-                notes.append(
-                    "Homepage contains e-edition style link(s): "
-                    + ", ".join(sorted(set(pdf_hint_links))[:3])
-                )
-                sources.append("Homepage")
+            if not href_lower.endswith(".pdf"):
+                article_text_match = any(keyword in anchor_text for keyword in article_href_keywords)
+                article_href_match = any(keyword in href_lower for keyword in article_href_keywords)
+                if article_text_match or article_href_match:
+                    article_hint_links.append(anchor["href"])
+
+        if pdf_hint_links and not pdf_links:
+            has_pdf = "Yes"
+            notes.append(
+                "Homepage contains e-edition style link(s): "
+                + ", ".join(sorted(set(pdf_hint_links))[:3])
+            )
+            sources.append("Homepage")
 
         if pdf_links:
             has_pdf = "Yes"
             notes.append(f"Found {len(pdf_links)} PDF links on homepage")
             sources.append("Homepage")
+
+        article_elements = soup.find_all("article")
+        article_dom_signals += len(article_elements)
+
+        for element in soup.find_all(class_=True):
+            if element.name == "article":
+                continue
+            classes = element.get("class") or []
+            for class_name in classes:
+                class_lower = str(class_name).lower()
+                if any(keyword in class_lower for keyword in article_class_keywords):
+                    article_dom_signals += 1
+                    break
 
     if sitemap_data["used"]:
         data_observed = True
@@ -376,11 +481,26 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
 
     pdf_like_count = len(pdf_links) + len(pdf_hint_links)
     pdf_like_ratio = pdf_like_count / total_anchors if total_anchors else 0.0
+    article_hint_links = list(dict.fromkeys(article_hint_links))
+    article_like_count = len(article_hint_links) + article_dom_signals
+    article_like_ratio = article_like_count / total_anchors if total_anchors else 0.0
 
     rss_entries = rss_data.get("entry_count", 0)
     rss_pdf_entries = rss_data.get("pdf_entry_count", 0)
     rss_has_articles = rss_data.get("feed_found") and (rss_entries - rss_pdf_entries) > 0
     vendor_is_tecnavia = (cms_vendor or "").strip().lower().startswith("tecnavia")
+
+    article_signals = article_like_count >= 3 or article_dom_signals >= 2 or article_like_ratio >= 0.2
+    if article_signals:
+        if article_hint_links:
+            notes.append(
+                "Homepage contains article-style link(s): "
+                + ", ".join(article_hint_links[:3])
+            )
+        if "Homepage contains article-style content" not in notes:
+            notes.append("Homepage contains article-style content")
+        sources.append("Homepage")
+        rss_has_articles = True
 
     if rss_data["feed_found"]:
         data_observed = True
@@ -436,6 +556,9 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
 
     if has_pdf is None:
         has_pdf = "No"
+
+    sources = list(dict.fromkeys(sources))
+    notes = list(dict.fromkeys(notes))
 
     return has_pdf, pdf_only, sources, notes
 
@@ -543,8 +666,10 @@ def quick_audit(url):
     if not url.startswith("http"):
         url = "http://" + url
 
-    homepage_html, homepage_status, homepage_error = fetch_url(url)
+    homepage_html, homepage_status, homepage_error = fetch_url(url, retries=3, backoff=2.0)
+    time.sleep(REQUEST_PAUSE_SECONDS)
     sitemap_data = check_sitemap(url)
+    time.sleep(REQUEST_PAUSE_SECONDS)
     rss_data = check_rss(url)
     chain_value, chain_sources, chain_notes = detect_chain(homepage_html)
     cms_platform, cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)

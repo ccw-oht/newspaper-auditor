@@ -116,7 +116,6 @@ def _fetch_existing(session: Session, data: Dict[str, str | None]) -> Paper | No
 
 def _compute_differences(existing: Paper, data: Dict[str, str | None]) -> Dict[str, Dict[str, str | None]]:
     diffs: Dict[str, Dict[str, str | None]] = {}
-
     for field in BASE_FIELDS:
         new_val = data.get(field)
         old_val = getattr(existing, field)
