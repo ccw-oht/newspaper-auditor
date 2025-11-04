@@ -14,7 +14,10 @@
 
 <div class="app-shell">
   <header class="app-header">
-    <h1>Newspaper Audit Dashboard</h1>
+    <div class="branding">
+      <img src="/audit.png" alt="Newspaper Audit logo" class="logo" />
+      <h1>Newspaper Audit Dashboard</h1>
+    </div>
     <nav>
       {#each navLinks as link}
         <a
@@ -52,6 +55,17 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .branding {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .logo {
+    height: 2.5rem;
+    width: auto;
   }
 
   nav a {

@@ -41,6 +41,7 @@ pdf_homepage_keywords = [
     "epost",
     "e-post",
     "e post",
+    "print archive",
 ]
 pdf_href_keywords = [
     "eedition",
@@ -57,6 +58,7 @@ pdf_href_keywords = [
     "newsmemory",
     "magazine",
     "special=",
+    "print archive"
 ]
 
 article_href_keywords = [
@@ -92,6 +94,7 @@ cms_platform_signatures = [
     ("Flatpage/Flatpack", ["flatpage", "flatpack", "wehaa"]),
     ("Presto", ["presto-content", "gannett-cdn", "gdn-presto", "gannettdigital"]),
     ("eType", ["etype.services", "etype1", "etype services"]),
+    ("Ellington CMS", ["ellingtoncms"]),
     ("Brightspot", ["brightspot", "bybrightspot"]),
     ("NewsPack", ["newspack", "wpengine"]),
     ("Tecnavia", ["tecnavia", "newsmemory"]),
@@ -99,7 +102,7 @@ cms_platform_signatures = [
 
 cms_vendor_signatures = [
     ("Creative Circle", ["creativecircle", "circle-media", "circleid", "/stories/", "creativecirclecdn"]),
-    ("ePublishing", ["epublishing", "epubcorp", "epublishing.com", "cld.bz"]),
+    ("ePublishing", ["epublishing", "epubcorp", "epublishing.com", "cld.bz", "ellingtoncms"]),
     ("eType", ["etype.services", "etype services", "etype1"]),
     ("Lion's Light", ["lionslight", "lion's light", "lions-light"]),
     ("Surf New Media", ["surfnewmedia", "snmportal", "surf new media"]),
@@ -142,7 +145,8 @@ DEFAULT_HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    # Requests does not decode Brotli by default, so omit br to avoid binary responses.
+    "Accept-Encoding": "gzip, deflate",
 }
 
 REQUEST_PAUSE_SECONDS = 0.75
