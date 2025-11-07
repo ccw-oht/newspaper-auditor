@@ -353,7 +353,7 @@ def check_rss(base_url):
 
 def detect_chain(homepage_html):
     if not homepage_html:
-        return "Manual Review", [], ["No homepage HTML available"]
+        return "Independent", [], ["No homepage HTML available"]
 
     html_lower = homepage_html.lower()
     chain_patterns = {
@@ -376,7 +376,7 @@ def detect_chain(homepage_html):
             note = f"Detected chain indicators ({chain}): {', '.join(matches)}"
             return chain, ["Homepage"], [note]
 
-    return "Manual Review", [], []
+    return "Independent", [], []
 
 
 def detect_cms(homepage_html, sitemap_data):
@@ -697,9 +697,19 @@ def quick_audit(url: str, *, strict: bool = False):
     }
 
     if not isinstance(url, str) or not url.strip():
-        audit["Audit Notes"] = "No website URL provided"
-        audit["Audit Sources"] = "None"
-        return audit
+        return {
+            "Has PDF Edition?": "",
+            "PDF-Only?": "",
+            "Paywall?": "",
+            "Free Public Notices?": "",
+            "Mobile Responsive?": "",
+            "Audit Sources": "",
+            "Audit Notes": "",
+            "Homepage HTML": None,
+            "Chain Owner": "",
+            "CMS Platform": "",
+            "CMS Vendor": "",
+        }
 
     if not url.startswith("http"):
         url = "http://" + url
@@ -724,7 +734,7 @@ def quick_audit(url: str, *, strict: bool = False):
     chain_value, chain_sources, chain_notes = detect_chain(homepage_html)
     cms_platform, cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)
 
-    chain_for_rules = None if chain_value == "Manual Review" else chain_value
+    chain_for_rules = None if chain_value in ("Manual Review", "Independent") else chain_value
 
     has_pdf, pdf_only, pdf_sources, pdf_notes = detect_pdf(
         homepage_html, sitemap_data, rss_data, chain_for_rules, cms_vendor
