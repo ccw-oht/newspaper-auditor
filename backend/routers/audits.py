@@ -5,7 +5,7 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..audit import run_audit
+from ..audit import HomepageFetchTimeoutError, run_audit
 from ..database import SessionLocal
 from ..models import Paper, Audit
 
@@ -57,6 +57,15 @@ def _apply_metadata_updates(paper: Paper, results: dict[str, str | None]) -> Non
         if _should_update_metadata(current, value):
             setattr(paper, attr, value)
 
+
+def _run_audit_or_timeout(paper: Paper) -> dict[str, str | None]:
+    try:
+        return run_audit(paper.website_url)
+    except HomepageFetchTimeoutError as exc:
+        safe_url = paper.website_url or "No website URL"
+        detail = f"Homepage fetch timed out for paper {paper.id} ({safe_url}): {exc.detail}"
+        raise HTTPException(status_code=504, detail=detail) from exc
+
 @router.post("/batch", response_model=list[schemas.AuditOut])
 def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db)):
     if not payload.ids:
@@ -78,7 +87,7 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
     audits: list[Audit] = []
     for paper_id in payload.ids:
         paper = papers[paper_id]
-        results = run_audit(paper.website_url)
+        results = _run_audit_or_timeout(paper)
         audit = Audit(
             paper_id=paper.id,
             has_pdf=results["Has PDF Edition?"],
@@ -125,7 +134,7 @@ def audit_one(paper_id: int, db: Session = Depends(get_db)):
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    results = run_audit(paper.website_url)
+    results = _run_audit_or_timeout(paper)
 
     audit = Audit(
         paper_id=paper.id,

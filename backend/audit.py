@@ -115,6 +115,7 @@ cms_vendor_signatures = [
     ("Arc Publishing", ["arc-cdn", "arcpublishing", "thearc", "arc publishing"]),
     ("Brightspot", ["brightspot", "bybrightspot"]),
     ("Our Hometown Web Publishing", ["our-hometown", "ourhometown", "oht-"]),
+    ("Indiegraf Media", ["indiegrafmedia", "indiegraf", "indiegraf media"]),
 ]
 
 # Snapshot limits
@@ -152,7 +153,27 @@ DEFAULT_HEADERS = {
 REQUEST_PAUSE_SECONDS = 0.75
 
 
-def fetch_url(url, timeout=8, headers=None, retries=2, backoff=1.5):
+class HomepageFetchTimeoutError(RuntimeError):
+    """Raised when the homepage request exhausts retries due to a timeout."""
+
+    def __init__(self, url: str, detail: str | None = None, status_code: int | None = None):
+        self.url = url
+        self.status_code = status_code
+        message_detail = (detail or "Request timed out").strip()
+        self.detail = message_detail
+        super().__init__(f"Homepage fetch timed out for {url}: {message_detail}")
+
+
+def _is_timeout_error(status_code: int | None, error_message: str | None) -> bool:
+    if status_code in {408, 504, 522, 524}:
+        return True
+    if not error_message:
+        return False
+    lowered = error_message.lower()
+    return ("timed out" in lowered) or ("timeout" in lowered)
+
+
+def fetch_url(url, timeout=8, headers=None, retries=2, backoff=1.5, raise_on_timeout: bool = False):
     headers = headers or DEFAULT_HEADERS
     last_error = None
     current_url = url
@@ -176,6 +197,12 @@ def fetch_url(url, timeout=8, headers=None, retries=2, backoff=1.5):
                 return resp.text, resp.status_code, None
             last_error = f"HTTP {resp.status_code}"
             return None, resp.status_code, None
+        except requests.exceptions.Timeout as exc:
+            last_error = str(exc)
+            if raise_on_timeout:
+                raise HomepageFetchTimeoutError(current_url, last_error) from exc
+            if attempt == retries:
+                return None, None, last_error
         except Exception as exc:
             last_error = str(exc)
             if attempt == retries:
@@ -647,7 +674,7 @@ def detect_responsive(homepage_html):
 
 # --- Main Audit ---
 
-def quick_audit(url):
+def quick_audit(url: str, *, strict: bool = False):
     audit = {
         "Has PDF Edition?": "Manual Review",
         "PDF-Only?": "Manual Review",
@@ -670,8 +697,12 @@ def quick_audit(url):
     if not url.startswith("http"):
         url = "http://" + url
 
-    homepage_html, homepage_status, homepage_error = fetch_url(url, retries=3, backoff=2.0)
+    homepage_html, homepage_status, homepage_error = fetch_url(
+        url, retries=3, backoff=2.0, raise_on_timeout=strict
+    )
     time.sleep(REQUEST_PAUSE_SECONDS)
+    if strict and homepage_html is None and _is_timeout_error(homepage_status, homepage_error):
+        raise HomepageFetchTimeoutError(url, homepage_error, homepage_status)
     sitemap_data = check_sitemap(url)
     time.sleep(REQUEST_PAUSE_SECONDS)
     rss_data = check_rss(url)
@@ -827,7 +858,7 @@ def process_csv(input_file, force=False):
     print(f"\n✅ Audit complete. Results saved to {out_file}")
     
 def run_audit(url: str):
-    return quick_audit(url)
+    return quick_audit(url, strict=True)
 
 
 def main():
