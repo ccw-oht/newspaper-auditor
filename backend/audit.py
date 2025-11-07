@@ -151,6 +151,7 @@ DEFAULT_HEADERS = {
 }
 
 REQUEST_PAUSE_SECONDS = 0.75
+REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 
 
 class HomepageFetchTimeoutError(RuntimeError):
@@ -171,6 +172,12 @@ def _is_timeout_error(status_code: int | None, error_message: str | None) -> boo
         return False
     lowered = error_message.lower()
     return ("timed out" in lowered) or ("timeout" in lowered)
+
+
+def _prefer_https(url: str) -> str:
+    if url.startswith("http://"):
+        return "https://" + url[len("http://"):]
+    return url
 
 
 def fetch_url(url, timeout=8, headers=None, retries=2, backoff=1.5, raise_on_timeout: bool = False):
@@ -697,15 +704,23 @@ def quick_audit(url: str, *, strict: bool = False):
     if not url.startswith("http"):
         url = "http://" + url
 
+    fetch_target = url
     homepage_html, homepage_status, homepage_error = fetch_url(
-        url, retries=3, backoff=2.0, raise_on_timeout=strict
+        fetch_target, retries=3, backoff=2.0, raise_on_timeout=strict
     )
+    if homepage_html is None and homepage_status in REDIRECT_STATUS_CODES:
+        upgraded = _prefer_https(fetch_target)
+        if upgraded != fetch_target:
+            fetch_target = upgraded
+            homepage_html, homepage_status, homepage_error = fetch_url(
+                fetch_target, retries=2, backoff=2.0, raise_on_timeout=strict
+            )
     time.sleep(REQUEST_PAUSE_SECONDS)
     if strict and homepage_html is None and _is_timeout_error(homepage_status, homepage_error):
-        raise HomepageFetchTimeoutError(url, homepage_error, homepage_status)
-    sitemap_data = check_sitemap(url)
+        raise HomepageFetchTimeoutError(fetch_target, homepage_error, homepage_status)
+    sitemap_data = check_sitemap(fetch_target)
     time.sleep(REQUEST_PAUSE_SECONDS)
-    rss_data = check_rss(url)
+    rss_data = check_rss(fetch_target)
     chain_value, chain_sources, chain_notes = detect_chain(homepage_html)
     cms_platform, cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)
 
