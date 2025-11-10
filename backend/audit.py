@@ -8,6 +8,14 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 from urllib.parse import parse_qsl, urlparse, urlunparse, urlencode
 
+try:
+    import brotli  # type: ignore[import]
+except ModuleNotFoundError:
+    try:
+        import brotlicffi as brotli  # type: ignore[import]
+    except ModuleNotFoundError:
+        brotli = None
+
 # Keywords/signals
 paywall_keywords = [
     "subscribe",
@@ -194,8 +202,31 @@ def _ensure_amp_variant(url: str) -> str:
     return urlunparse(parsed._replace(query=new_query))
 
 
-def fetch_url(url, timeout=8, headers=None, retries=2, backoff=1.5, raise_on_timeout: bool = False):
+def _decode_html_bytes(data: bytes, encoding_hint: str | None) -> str:
+    if encoding_hint:
+        try:
+            return data.decode(encoding_hint, errors="replace")
+        except LookupError:
+            pass
+    try:
+        return data.decode("utf-8", errors="replace")
+    except UnicodeDecodeError:
+        return data.decode("latin-1", errors="replace")
+
+
+def fetch_url(
+    url,
+    timeout=8,
+    headers=None,
+    retries=2,
+    backoff=1.5,
+    raise_on_timeout: bool = False,
+    allow_brotli: bool = False,
+):
     headers = headers or DEFAULT_HEADERS
+    if allow_brotli:
+        headers = dict(headers)
+        headers["Accept-Encoding"] = "gzip, deflate, br"
     last_error = None
     current_url = url
     for attempt in range(retries + 1):
@@ -215,7 +246,19 @@ def fetch_url(url, timeout=8, headers=None, retries=2, backoff=1.5, raise_on_tim
                 time.sleep(backoff * (attempt + 1))
                 continue
             if resp.status_code == 200:
-                return resp.text, resp.status_code, None
+                content = resp.content
+                encoding_header = (resp.headers.get("Content-Encoding") or "").lower()
+                if encoding_header == "br":
+                    if not allow_brotli or brotli is None:
+                        last_error = "Received Brotli-compressed response but Brotli support unavailable"
+                        return None, resp.status_code, last_error
+                    try:
+                        content = brotli.decompress(content)
+                    except Exception as exc:  # pragma: no cover - depends on remote data
+                        last_error = f"Brotli decode failed: {exc}"
+                        return None, resp.status_code, last_error
+                text = _decode_html_bytes(content, resp.encoding or getattr(resp, "apparent_encoding", None))
+                return text, resp.status_code, None
             last_error = f"HTTP {resp.status_code}"
             return None, resp.status_code, None
         except requests.exceptions.Timeout as exc:
@@ -728,29 +771,36 @@ def quick_audit(url: str, *, strict: bool = False):
     if not url.startswith("http"):
         url = "http://" + url
 
-    def _attempt_fetch(target: str, retries: int, backoff: float):
+    def _attempt_fetch(target: str, retries: int, backoff: float, allow_brotli: bool = False):
         try:
-            return fetch_url(target, retries=retries, backoff=backoff, raise_on_timeout=strict)
+            return fetch_url(
+                target,
+                retries=retries,
+                backoff=backoff,
+                raise_on_timeout=strict,
+                allow_brotli=allow_brotli,
+            )
         except HomepageFetchTimeoutError as exc:
             return None, exc.status_code, exc.detail
 
     fetch_target = url
     base_url_for_aux = fetch_target
     used_amp_variant = False
+    used_brotli_variant = False
 
-    homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 3, 2.0)
+    homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 3, 2.0, False)
     if homepage_html is None and homepage_status in REDIRECT_STATUS_CODES:
         upgraded = _prefer_https(fetch_target)
         if upgraded != fetch_target:
             fetch_target = upgraded
             base_url_for_aux = fetch_target
-            homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 2, 2.0)
+            homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 2, 2.0, False)
 
     if homepage_html is None:
         amp_candidate = _ensure_amp_variant(fetch_target)
         if amp_candidate != fetch_target:
             fetch_target = amp_candidate
-            amp_html, amp_status, amp_error = _attempt_fetch(fetch_target, 2, 2.5)
+            amp_html, amp_status, amp_error = _attempt_fetch(fetch_target, 2, 2.5, False)
             if amp_html:
                 homepage_html = amp_html
                 homepage_status = amp_status
@@ -759,6 +809,14 @@ def quick_audit(url: str, *, strict: bool = False):
             else:
                 homepage_status = amp_status
                 homepage_error = amp_error
+
+    if homepage_html is None:
+        brotli_candidate = _prefer_https(url)
+        homepage_html, homepage_status, homepage_error = _attempt_fetch(brotli_candidate, 2, 3.0, True)
+        if homepage_html:
+            fetch_target = brotli_candidate
+            base_url_for_aux = fetch_target
+            used_brotli_variant = True
 
     time.sleep(REQUEST_PAUSE_SECONDS)
     if strict and homepage_html is None and _is_timeout_error(homepage_status, homepage_error):
@@ -793,6 +851,8 @@ def quick_audit(url: str, *, strict: bool = False):
     )
     if used_amp_variant:
         all_notes.append("Used AMP fallback (?output=amp) to fetch homepage")
+    if used_brotli_variant:
+        all_notes.append("Used Brotli fallback to decode homepage HTML")
 
     sanitized_homepage_html, snapshot_truncated = sanitize_homepage_snapshot(homepage_html)
 
