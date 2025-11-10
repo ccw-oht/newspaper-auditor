@@ -409,7 +409,12 @@
         <h3>Homepage preview</h3>
         {#if selectedAudit?.homepage_html}
           <div class="preview-frame">
-            <iframe title="Homepage preview" srcdoc={selectedAudit.homepage_html} />
+            <iframe
+              title="Homepage preview"
+              srcdoc={selectedAudit.homepage_html}
+              sandbox=""
+              referrerpolicy="no-referrer"
+            />
           </div>
         {:else}
           <p class="empty">No snapshot captured for this audit.</p>

@@ -54,6 +54,9 @@ def _apply_metadata_updates(paper: Paper, results: dict[str, str | None]) -> Non
             if not value:
                 value = None
         current = getattr(paper, attr)
+        if attr == "chain_owner" and value and value.lower() == "independent":
+            if isinstance(current, str) and current.strip():
+                continue
         if _should_update_metadata(current, value):
             setattr(paper, attr, value)
 

@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
-from urllib.parse import urlparse, urlunparse, urlencode
+from urllib.parse import parse_qsl, urlparse, urlunparse, urlencode
 
 # Keywords/signals
 paywall_keywords = [
@@ -98,6 +98,8 @@ cms_platform_signatures = [
     ("Brightspot", ["brightspot", "bybrightspot"]),
     ("NewsPack", ["newspack", "wpengine"]),
     ("Tecnavia", ["tecnavia", "newsmemory"]),
+    ("Locable Community Content Engine", ["locable", "locable.com", "locable media"]),
+    ("SquareSpace", ["squarespace", "squarespace-cdn", "squarespace media"]),
 ]
 
 cms_vendor_signatures = [
@@ -116,6 +118,8 @@ cms_vendor_signatures = [
     ("Brightspot", ["brightspot", "bybrightspot"]),
     ("Our Hometown Web Publishing", ["our-hometown", "ourhometown", "oht-"]),
     ("Indiegraf Media", ["indiegrafmedia", "indiegraf", "indiegraf media"]),
+    ("Locable", ["locable", "locable.com", "locable media"]),
+    ("SquareSpace", ["squarespace", "squarespace-cdn", "squarespace media"]),
 ]
 
 # Snapshot limits
@@ -178,6 +182,16 @@ def _prefer_https(url: str) -> str:
     if url.startswith("http://"):
         return "https://" + url[len("http://"):]
     return url
+
+
+def _ensure_amp_variant(url: str) -> str:
+    parsed = urlparse(url)
+    query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if query_params.get("output") == "amp":
+        return url
+    query_params["output"] = "amp"
+    new_query = urlencode(query_params, doseq=True)
+    return urlunparse(parsed._replace(query=new_query))
 
 
 def fetch_url(url, timeout=8, headers=None, retries=2, backoff=1.5, raise_on_timeout: bool = False):
@@ -714,23 +728,44 @@ def quick_audit(url: str, *, strict: bool = False):
     if not url.startswith("http"):
         url = "http://" + url
 
+    def _attempt_fetch(target: str, retries: int, backoff: float):
+        try:
+            return fetch_url(target, retries=retries, backoff=backoff, raise_on_timeout=strict)
+        except HomepageFetchTimeoutError as exc:
+            return None, exc.status_code, exc.detail
+
     fetch_target = url
-    homepage_html, homepage_status, homepage_error = fetch_url(
-        fetch_target, retries=3, backoff=2.0, raise_on_timeout=strict
-    )
+    base_url_for_aux = fetch_target
+    used_amp_variant = False
+
+    homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 3, 2.0)
     if homepage_html is None and homepage_status in REDIRECT_STATUS_CODES:
         upgraded = _prefer_https(fetch_target)
         if upgraded != fetch_target:
             fetch_target = upgraded
-            homepage_html, homepage_status, homepage_error = fetch_url(
-                fetch_target, retries=2, backoff=2.0, raise_on_timeout=strict
-            )
+            base_url_for_aux = fetch_target
+            homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 2, 2.0)
+
+    if homepage_html is None:
+        amp_candidate = _ensure_amp_variant(fetch_target)
+        if amp_candidate != fetch_target:
+            fetch_target = amp_candidate
+            amp_html, amp_status, amp_error = _attempt_fetch(fetch_target, 2, 2.5)
+            if amp_html:
+                homepage_html = amp_html
+                homepage_status = amp_status
+                homepage_error = amp_error
+                used_amp_variant = True
+            else:
+                homepage_status = amp_status
+                homepage_error = amp_error
+
     time.sleep(REQUEST_PAUSE_SECONDS)
     if strict and homepage_html is None and _is_timeout_error(homepage_status, homepage_error):
         raise HomepageFetchTimeoutError(fetch_target, homepage_error, homepage_status)
-    sitemap_data = check_sitemap(fetch_target)
+    sitemap_data = check_sitemap(base_url_for_aux)
     time.sleep(REQUEST_PAUSE_SECONDS)
-    rss_data = check_rss(fetch_target)
+    rss_data = check_rss(base_url_for_aux)
     chain_value, chain_sources, chain_notes = detect_chain(homepage_html)
     cms_platform, cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)
 
@@ -756,6 +791,8 @@ def quick_audit(url: str, *, strict: bool = False):
     all_notes = (
         pdf_notes + paywall_notes + notice_notes + resp_notes + chain_notes + cms_notes
     )
+    if used_amp_variant:
+        all_notes.append("Used AMP fallback (?output=amp) to fetch homepage")
 
     sanitized_homepage_html, snapshot_truncated = sanitize_homepage_snapshot(homepage_html)
 
