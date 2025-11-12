@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 import pandas as pd
 from sqlalchemy import select
@@ -31,6 +31,8 @@ ALLOWED_ACTIONS = {
     "duplicate": ["skip", "overwrite", "merge_extra", "insert"],
     "invalid": ["skip"],
 }
+
+PROTECTED_METADATA_FIELDS = ("chain_owner", "cms_platform", "cms_vendor")
 
 
 def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[StagedRow], Dict[str, int]]:
@@ -142,6 +144,40 @@ def _mark_previous_duplicate(staged: List[StagedRow], temp_id: str) -> str | Non
     return None
 
 
+def _collect_protected_overrides(data: Dict[str, Any]) -> Dict[str, str]:
+    overrides: Dict[str, str] = {}
+    for field in PROTECTED_METADATA_FIELDS:
+        raw_value = data.get(field)
+        if raw_value is None:
+            continue
+        if isinstance(raw_value, str):
+            cleaned = raw_value.strip()
+        else:
+            cleaned = str(raw_value).strip()
+        if not cleaned:
+            continue
+        if cleaned.lower().startswith("manual review"):
+            continue
+        overrides[field] = cleaned
+    return overrides
+
+
+def _apply_override_updates(paper: Paper, overrides: Dict[str, str]) -> None:
+    if not overrides:
+        return
+
+    merged = dict(paper.audit_overrides or {})
+    changed = False
+    for field, value in overrides.items():
+        if merged.get(field) == value:
+            continue
+        merged[field] = value
+        changed = True
+
+    if changed:
+        paper.audit_overrides = merged or None
+
+
 def allowed_actions(status: str) -> List[str]:
     return ALLOWED_ACTIONS.get(status, ["skip"])
 
@@ -162,9 +198,14 @@ def commit_rows(session: Session, commit_rows: Iterable[schemas.ImportCommitRow]
 
         normalized_data = _sanitize_row_data(item.data)
         extras = normalized_data.pop("extra_data", None)
+        override_values = _collect_protected_overrides(normalized_data)
 
         if action == "insert":
-            paper = Paper(**normalized_data, extra_data=extras or None)
+            paper = Paper(
+                **normalized_data,
+                extra_data=extras or None,
+                audit_overrides=override_values or None,
+            )
             session.add(paper)
             inserted += 1
             continue
@@ -188,6 +229,7 @@ def commit_rows(session: Session, commit_rows: Iterable[schemas.ImportCommitRow]
                 merged = {**(existing.extra_data or {}), **(extras or {})}
                 existing.extra_data = merged or None
 
+            _apply_override_updates(existing, override_values)
             updated += 1
             continue
 

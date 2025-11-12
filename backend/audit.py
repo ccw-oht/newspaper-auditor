@@ -50,6 +50,8 @@ pdf_homepage_keywords = [
     "e-post",
     "e post",
     "print archive",
+    "online paper",
+    "online-newspaper",
 ]
 pdf_href_keywords = [
     "eedition",
@@ -66,7 +68,9 @@ pdf_href_keywords = [
     "newsmemory",
     "magazine",
     "special=",
-    "print archive"
+    "print archive",
+    "online paper",
+    "online-newspaper",
 ]
 
 article_href_keywords = [
@@ -164,6 +168,11 @@ DEFAULT_HEADERS = {
 
 REQUEST_PAUSE_SECONDS = 0.75
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+MANUAL_REVIEW_STATUSES = {
+    "manual review",
+    "manual review (timeout)",
+    "manual review (error)",
+}
 
 
 class HomepageFetchTimeoutError(RuntimeError):
@@ -927,6 +936,36 @@ def process_csv(input_file, force=False):
         if col not in df.columns:
             df[col] = ""
 
+    columns_in_order = list(df.columns)
+
+    def _resolve_column_name(name: str) -> str | None:
+        target = name.strip().lower()
+        for existing in columns_in_order:
+            if existing.strip().lower() == target:
+                return existing
+        return None
+
+    def _clean_entry(value) -> str:
+        if pd.isna(value):
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        return str(value).strip()
+
+    def _get_existing_value(row: pd.Series, primary: str, aliases: list[str] | None = None) -> str:
+        search_keys = [primary]
+        if aliases:
+            search_keys.extend(aliases)
+        for key in search_keys:
+            resolved = _resolve_column_name(key)
+            if not resolved:
+                continue
+            raw_value = row.get(resolved, "")
+            cleaned = _clean_entry(raw_value)
+            if cleaned:
+                return cleaned
+        return ""
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     base = input_path.stem
     out_file = OUTPUT_DIR / f"{base}_Audit.csv"
@@ -966,6 +1005,16 @@ def process_csv(input_file, force=False):
         url_value = row.get(url_column, "")
         url = url_value if isinstance(url_value, str) else str(url_value or "")
         results = quick_audit(url)
+
+        existing_chain_value = _get_existing_value(
+            row,
+            "Chain Owner",
+            aliases=["Chain", "Owner", "Chain owner", "ChainOwner", "Owner Chain"],
+        )
+        normalized_chain = existing_chain_value.lower()
+        if normalized_chain and normalized_chain not in MANUAL_REVIEW_STATUSES and not normalized_chain.startswith("manual review"):
+            results["Chain Owner"] = existing_chain_value
+
         for col, val in results.items():
             df.loc[idx, col] = val
 
