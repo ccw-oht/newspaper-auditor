@@ -8,7 +8,11 @@ import type {
   ImportCommitRequest,
   ImportCommitResult,
   PaperIdList,
-  BulkDeleteResult
+  BulkDeleteResult,
+  ResearchSessionListResponse,
+  ResearchSessionDetail,
+  ResearchSessionCreatePayload,
+  ResearchFeature
 } from '$lib/types';
 import { API_BASE_URL } from './config';
 
@@ -157,4 +161,36 @@ export async function deletePapers(ids: number[], fetchImpl?: FetchLike): Promis
     method: HttpMethod.POST,
     body: JSON.stringify({ ids })
   });
+}
+
+export async function fetchResearchSessions(fetchImpl?: FetchLike): Promise<ResearchSessionListResponse> {
+  return request<ResearchSessionListResponse>(`/research/sessions`, {
+    fetchImpl,
+    method: HttpMethod.GET
+  });
+}
+
+export async function fetchResearchSessionDetail(id: number, fetchImpl?: FetchLike): Promise<ResearchSessionDetail> {
+  return request<ResearchSessionDetail>(`/research/sessions/${id}`, {
+    fetchImpl,
+    method: HttpMethod.GET
+  });
+}
+
+export async function createResearchSession(payload: ResearchSessionCreatePayload, fetchImpl?: FetchLike): Promise<ResearchSessionDetail> {
+  return request<ResearchSessionDetail>(`/research/sessions`, {
+    fetchImpl,
+    method: HttpMethod.POST,
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function runResearchFeatures(sessionId: number, featureIds?: number[], fetchImpl?: FetchLike): Promise<ResearchFeature[]> {
+  const body = featureIds && featureIds.length > 0 ? { feature_ids: featureIds } : {};
+  const response = await request<{ features: ResearchFeature[] }>(`/research/sessions/${sessionId}/run`, {
+    fetchImpl,
+    method: HttpMethod.POST,
+    body: JSON.stringify(body)
+  });
+  return response.features;
 }

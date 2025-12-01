@@ -1,6 +1,16 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, JSON, Text
-from sqlalchemy.orm import relationship
 from datetime import datetime
+
+from sqlalchemy import (
+    ARRAY,
+    JSON,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.orm import relationship
 
 from .database import Base
 
@@ -41,3 +51,46 @@ class Audit(Base):
     cms_vendor = Column(String)
 
     paper = relationship("Paper", back_populates="audits")
+
+
+class ResearchSession(Base):
+    __tablename__ = "research_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    filter_params = Column(JSON, default=dict)
+    query_string = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    papers = relationship("ResearchSessionPaper", back_populates="session", cascade="all, delete-orphan")
+    features = relationship("ResearchFeature", back_populates="session", cascade="all, delete-orphan")
+
+
+class ResearchSessionPaper(Base):
+    __tablename__ = "research_session_papers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("research_sessions.id", ondelete="CASCADE"))
+    paper_id = Column(Integer, ForeignKey("papers.id", ondelete="SET NULL"), nullable=True)
+    snapshot = Column(JSON, default=dict)
+
+    session = relationship("ResearchSession", back_populates="papers")
+    paper = relationship("Paper")
+
+
+class ResearchFeature(Base):
+    __tablename__ = "research_features"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("research_sessions.id", ondelete="CASCADE"))
+    name = Column(String, nullable=False)
+    keywords = Column(ARRAY(String), nullable=False)
+    desired_examples = Column(Integer, default=5)
+    status = Column(String, default="pending")
+    last_evaluated_at = Column(DateTime)
+    evidence = Column(JSON, default=dict)
+    error = Column(Text)
+
+    session = relationship("ResearchSession", back_populates="features")

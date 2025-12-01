@@ -172,3 +172,77 @@ export interface ImportCommitResult {
 export interface BulkDeleteResult {
   deleted: number;
 }
+
+export interface ResearchFeatureConfig {
+  name: string;
+  keywords: string[];
+  desired_examples?: number;
+}
+
+export interface ResearchEvidenceItem {
+  paper_id: number | null;
+  paper_name: string | null;
+  source_type: string;
+  title: string | null;
+  url: string | null;
+  excerpt: string | null;
+  matched_keywords: string[];
+}
+
+export interface ResearchFeature {
+  id: number;
+  session_id: number;
+  name: string;
+  keywords: string[];
+  desired_examples: number;
+  status: string;
+  last_evaluated_at: string | null;
+  evidence: {
+    matches: ResearchEvidenceItem[];
+    [key: string]: unknown;
+  };
+  error?: string | null;
+}
+
+export interface ResearchSessionPaperSnapshot {
+  id: number;
+  paper_id: number | null;
+  snapshot: Record<string, unknown>;
+}
+
+export interface ResearchSessionSummary {
+  id: number;
+  name: string;
+  description?: string | null;
+  created_at: string;
+  updated_at: string;
+  filter_params: Record<string, unknown>;
+  query_string?: string | null;
+  paper_count: number;
+  feature_count: number;
+}
+
+export interface ResearchSessionDetail {
+  id: number;
+  name: string;
+  description?: string | null;
+  created_at: string;
+  updated_at: string;
+  filter_params: Record<string, unknown>;
+  query_string?: string | null;
+  papers: ResearchSessionPaperSnapshot[];
+  features: ResearchFeature[];
+}
+
+export interface ResearchSessionListResponse {
+  items: ResearchSessionSummary[];
+}
+
+export interface ResearchSessionCreatePayload {
+  name: string;
+  description?: string;
+  paper_ids: number[];
+  filter_params: Record<string, unknown>;
+  query_string?: string;
+  features: ResearchFeatureConfig[];
+}

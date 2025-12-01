@@ -184,3 +184,82 @@ class PaperDeleteRequest(BaseModel):
 
 class BulkDeleteResult(BaseModel):
     deleted: int
+
+
+class ResearchFeatureConfig(BaseModel):
+    name: str
+    keywords: list[str]
+    desired_examples: int = Field(default=5, ge=1, le=50)
+
+
+class ResearchEvidenceItem(BaseModel):
+    paper_id: Optional[int] = None
+    paper_name: Optional[str] = None
+    source_type: str
+    title: Optional[str] = None
+    url: Optional[str] = None
+    excerpt: Optional[str] = None
+    matched_keywords: list[str] = Field(default_factory=list)
+
+
+class ResearchFeature(BaseModel):
+    id: int
+    session_id: int
+    name: str
+    keywords: list[str]
+    desired_examples: int
+    status: str
+    last_evaluated_at: Optional[datetime] = None
+    evidence: dict = Field(default_factory=dict)
+    error: Optional[str] = None
+
+
+class ResearchSessionPaper(BaseModel):
+    id: int
+    paper_id: Optional[int] = None
+    snapshot: dict = Field(default_factory=dict)
+
+
+class ResearchSessionSummary(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    filter_params: dict = Field(default_factory=dict)
+    query_string: Optional[str] = None
+    paper_count: int
+    feature_count: int
+
+
+class ResearchSessionDetail(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    filter_params: dict = Field(default_factory=dict)
+    query_string: Optional[str] = None
+    papers: list[ResearchSessionPaper]
+    features: list[ResearchFeature]
+
+
+class ResearchSessionCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    paper_ids: list[int]
+    filter_params: dict = Field(default_factory=dict)
+    query_string: Optional[str] = None
+    features: list[ResearchFeatureConfig] = Field(default_factory=list)
+
+
+class ResearchSessionListResponse(BaseModel):
+    items: list[ResearchSessionSummary]
+
+
+class ResearchFeatureRunResponse(BaseModel):
+    feature: ResearchFeature
+
+
+class ResearchFeatureRunListResponse(BaseModel):
+    features: list[ResearchFeature]

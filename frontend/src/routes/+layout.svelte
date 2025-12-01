@@ -3,7 +3,8 @@
 
   const navLinks = [
     { href: '/papers', label: 'Papers' },
-    { href: '/imports', label: 'Imports' }
+    { href: '/imports', label: 'Imports' },
+    { href: '/research', label: 'Research' }
   ];
 </script>
 

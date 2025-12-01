@@ -3,7 +3,7 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { runAudit, fetchPaperIds, exportPapers, deletePapers } from '$lib/api';
+  import { runAudit, fetchPaperIds, exportPapers, deletePapers, createResearchSession } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
   import { browser } from '$app/environment';
@@ -33,6 +33,21 @@
   let exportError: string | null = null;
   let deleteLoading = false;
   let deleteError: string | null = null;
+  let researchFormOpen = false;
+  let researchLoading = false;
+  let researchError: string | null = null;
+  let researchName = '';
+  let researchDescription = '';
+  type FeatureDraft = {
+    id: number;
+    name: string;
+    keywords: string;
+    desired_examples: number;
+  };
+  let featureDrafts: FeatureDraft[] = [
+    { id: 1, name: 'City Council', keywords: 'city council, public notice', desired_examples: 5 }
+  ];
+  let nextFeatureDraftId = 2;
 
   $: currentSortField = (data.params.sort as string | undefined) ?? 'paper_name';
   $: currentSortOrder = (data.params.order as 'asc' | 'desc' | undefined) === 'desc' ? 'desc' : 'asc';
@@ -307,6 +322,74 @@
       deleteLoading = false;
     }
   }
+
+  function addFeatureDraft() {
+    featureDrafts = [
+      ...featureDrafts,
+      {
+        id: nextFeatureDraftId++,
+        name: '',
+        keywords: '',
+        desired_examples: 5
+      }
+    ];
+  }
+
+  function removeFeatureDraft(id: number) {
+    featureDrafts = featureDrafts.filter((draft) => draft.id !== id);
+  }
+
+  function updateFeatureDraft(id: number, field: keyof FeatureDraft, value: string | number) {
+    featureDrafts = featureDrafts.map((draft) => {
+      if (draft.id !== id) return draft;
+      return { ...draft, [field]: value };
+    });
+  }
+
+  async function handleCreateResearchSession() {
+    if (selectedIds.size === 0) {
+      researchError = 'Select at least one paper before saving a research session.';
+      return;
+    }
+
+    const preparedFeatures = featureDrafts
+      .map((draft) => {
+        const keywords = draft.keywords
+          .split(',')
+          .map((keyword) => keyword.trim())
+          .filter(Boolean);
+        return {
+          name: draft.name.trim(),
+          keywords,
+          desired_examples: Number(draft.desired_examples) || 5
+        };
+      })
+      .filter((feature) => feature.name && feature.keywords.length > 0);
+
+    if (preparedFeatures.length === 0) {
+      researchError = 'Add at least one feature with keywords.';
+      return;
+    }
+
+    researchLoading = true;
+    researchError = null;
+    try {
+      const payload = {
+        name: (researchName || `Research Session (${new Date().toLocaleDateString()})`).trim(),
+        description: researchDescription || undefined,
+        paper_ids: Array.from(selectedIds),
+        filter_params: data.params,
+        query_string: data.query,
+        features: preparedFeatures
+      };
+      const session = await createResearchSession(payload);
+      await goto(`/research/${session.id}`);
+    } catch (error) {
+      researchError = error instanceof Error ? error.message : 'Failed to save research session.';
+    } finally {
+      researchLoading = false;
+    }
+  }
 </script>
 
 <div class="page">
@@ -362,6 +445,16 @@
       </select>
     </label>
     <span>{selectedCount} selected</span>
+    <button
+      type="button"
+      on:click={() => {
+        researchFormOpen = !researchFormOpen;
+        researchError = null;
+      }}
+      disabled={selectedCount === 0}
+    >
+      {researchFormOpen ? 'Close research form' : 'Save as Research Session'}
+    </button>
     <button type="button" on:click={handleBatchAudit} disabled={selectedCount === 0 || loading}>
       {loading
         ? `Running…${progressTotal ? ` (${progressCurrent}/${progressTotal})` : ''}`
@@ -379,6 +472,83 @@
       {deleteLoading ? 'Deleting…' : 'Delete selected'}
     </button>
   </div>
+
+  {#if researchFormOpen}
+    <section class="research-form">
+      <h3>Create research session</h3>
+      <p class="subtitle">
+        Save the current filters and selection, then define feature keyword sets to audit across all selected papers.
+      </p>
+
+      <label>
+        Session name
+        <input type="text" bind:value={researchName} placeholder="City Council Scan – Midwest" />
+      </label>
+
+      <label>
+        Description
+        <textarea bind:value={researchDescription} placeholder="Optional notes about the research goal."></textarea>
+      </label>
+
+      <div class="feature-list">
+        <h4>Features</h4>
+        {#each featureDrafts as feature}
+          <div class="feature-row">
+            <div class="field">
+              <label>
+                Feature name
+                <input
+                  type="text"
+                  value={feature.name}
+                  placeholder="City Council coverage"
+                  on:input={(event) => updateFeatureDraft(feature.id, 'name', event.currentTarget?.value ?? '')}
+                />
+              </label>
+            </div>
+            <div class="field">
+              <label>
+                Keywords (comma-separated)
+                <input
+                  type="text"
+                  value={feature.keywords}
+                  placeholder="city council, council meeting"
+                  on:input={(event) => updateFeatureDraft(feature.id, 'keywords', event.currentTarget?.value ?? '')}
+                />
+              </label>
+            </div>
+            <div class="field small">
+              <label>
+                Examples
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={feature.desired_examples}
+                  on:input={(event) => updateFeatureDraft(feature.id, 'desired_examples', Number(event.currentTarget?.value ?? 5))}
+                />
+              </label>
+            </div>
+            <button type="button" class="secondary" on:click={() => removeFeatureDraft(feature.id)} disabled={featureDrafts.length === 1}>
+              Remove
+            </button>
+          </div>
+        {/each}
+        <button type="button" class="secondary" on:click={addFeatureDraft}>
+          Add feature
+        </button>
+      </div>
+
+      {#if researchError}
+        <p class="error">{researchError}</p>
+      {/if}
+
+      <div class="form-actions">
+        <button type="button" on:click={handleCreateResearchSession} disabled={researchLoading || selectedCount === 0}>
+          {researchLoading ? 'Saving session…' : `Save ${selectedCount} paper${selectedCount === 1 ? '' : 's'}`}
+        </button>
+      </div>
+    </section>
+  {/if}
 
   <PaperTable
     items={data.response.items}
@@ -420,22 +590,8 @@
     justify-content: flex-end;
     align-items: center;
     gap: 1rem;
+    flex-wrap: wrap;
   }
-
-.import-link {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.import-link .import-btn {
-  padding: 0.55rem 1rem;
-  border-radius: 0.5rem;
-  background-color: #22c55e;
-  color: white;
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: none;
-}
 
   .actions span {
     color: #4b5563;
@@ -508,5 +664,73 @@
   .error {
     color: #b91c1c;
     font-weight: 600;
+  }
+
+  .research-form {
+    margin-top: 1.5rem;
+    background: white;
+    border-radius: 0.75rem;
+    border: 1px solid #e5e7eb;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .research-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    font-weight: 600;
+    color: #374151;
+  }
+
+  .research-form input,
+  .research-form textarea {
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.65rem;
+    font-size: 1rem;
+  }
+
+  .research-form textarea {
+    min-height: 80px;
+    resize: vertical;
+  }
+
+  .feature-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .feature-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    align-items: flex-end;
+  }
+
+  .feature-row .field {
+    flex: 1;
+    min-width: 200px;
+  }
+
+  .feature-row .field.small {
+    max-width: 120px;
+  }
+
+  .research-form .secondary {
+    background: #f3f4f6;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+  }
+
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
   }
 </style>
