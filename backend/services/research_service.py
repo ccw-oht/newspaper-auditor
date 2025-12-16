@@ -373,7 +373,7 @@ def get_research_session(db: Session, session_id: int) -> schemas.ResearchSessio
 
 
 def run_feature_scans(
-    db: Session, session_id: int, feature_ids: Optional[list[int]] = None
+    db: Session, session_id: int, feature_ids: Optional[list[int]] = None, paper_ids: Optional[list[int]] = None
 ) -> list[schemas.ResearchFeature]:
     session = db.get(ResearchSession, session_id)
     if not session:
@@ -388,6 +388,15 @@ def run_feature_scans(
     if not selected_features:
         raise ValueError("No features found for session")
 
+    selected_papers: list[ResearchSessionPaper]
+    if paper_ids:
+        paper_id_set = {int(pid) for pid in paper_ids}
+        selected_papers = [p for p in session.papers if p.id in paper_id_set]
+        if not selected_papers:
+            raise ValueError("No matching papers found for this session")
+    else:
+        selected_papers = list(session.papers)
+
     artifact_cache: dict[int, PaperArtifacts] = {}
 
     results: list[schemas.ResearchFeature] = []
@@ -400,7 +409,7 @@ def run_feature_scans(
         try:
             matches: list[schemas.ResearchEvidenceItem] = []
             desired = feature.desired_examples or 5
-            for paper in session.papers:
+            for paper in selected_papers:
                 if paper.id not in artifact_cache:
                     artifact_cache[paper.id] = _collect_artifacts_for_paper(paper.snapshot or {})
                 artifacts = artifact_cache[paper.id]
@@ -436,4 +445,3 @@ def run_feature_scans(
         )
 
     return results
-

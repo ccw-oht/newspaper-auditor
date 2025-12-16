@@ -185,8 +185,19 @@ export async function createResearchSession(payload: ResearchSessionCreatePayloa
   });
 }
 
-export async function runResearchFeatures(sessionId: number, featureIds?: number[], fetchImpl?: FetchLike): Promise<ResearchFeature[]> {
-  const body = featureIds && featureIds.length > 0 ? { feature_ids: featureIds } : {};
+export async function runResearchFeatures(
+  sessionId: number,
+  featureIds?: number[],
+  paperIds?: number[],
+  fetchImpl?: FetchLike
+): Promise<ResearchFeature[]> {
+  const body: Record<string, unknown> = {};
+  if (featureIds && featureIds.length > 0) {
+    body.feature_ids = featureIds;
+  }
+  if (paperIds && paperIds.length > 0) {
+    body.paper_ids = paperIds;
+  }
   const response = await request<{ features: ResearchFeature[] }>(`/research/sessions/${sessionId}/run`, {
     fetchImpl,
     method: HttpMethod.POST,

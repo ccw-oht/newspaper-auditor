@@ -42,6 +42,7 @@ pdf_homepage_keywords = [
     "digital replica",
     "digital-version",
     "digital version",
+    "digital-issues",
     "replica edition",
     "enewspaper",
     "e-newspaper",
@@ -56,6 +57,7 @@ pdf_homepage_keywords = [
 pdf_href_keywords = [
     "eedition",
     "epaper",
+    "ePaper"
     "e-edition",
     "enewspaper",
     "digitaledition",
@@ -71,6 +73,8 @@ pdf_href_keywords = [
     "print archive",
     "online paper",
     "online-newspaper",
+    "issue="
+    "digital-issues",
 ]
 
 article_href_keywords = [
@@ -98,7 +102,7 @@ article_class_keywords = [
 ]
 
 cms_platform_signatures = [
-    ("Creative Circle", ["creativecircle", "circle-media", "circleid", "/stories/", "creativecirclecdn"]),
+    ("Creative Circle", ["creativecircle", "circle-media", "circleid", "creativecirclecdn"]),
     ("BLOX Digital", ["tncms", "bloximages", "townnews", "bloxcms"]),
     ("WordPress", ["wp-content", "wp-includes", "wordpress", "wp-json", "wp-sitemap"]),
     ("Drupal", ["drupal.settings", "drupal-settings-json", "drupal"]),
@@ -112,10 +116,12 @@ cms_platform_signatures = [
     ("Tecnavia", ["tecnavia", "newsmemory"]),
     ("Locable Community Content Engine", ["locable", "locable.com", "locable media"]),
     ("SquareSpace", ["squarespace", "squarespace-cdn", "squarespace media"]),
+    ("SNworks", ["SNworks", "solutions by state news", "snworks", "snworsceo"]),
+    ("Ghost", ["/ghost"]),
 ]
 
 cms_vendor_signatures = [
-    ("Creative Circle", ["creativecircle", "circle-media", "circleid", "/stories/", "creativecirclecdn"]),
+    ("Creative Circle", ["creativecircle", "circle-media", "circleid", "creativecirclecdn"]),
     ("ePublishing", ["epublishing", "epubcorp", "epublishing.com", "cld.bz", "ellingtoncms"]),
     ("eType", ["etype.services", "etype services", "etype1"]),
     ("Lion's Light", ["lionslight", "lion's light", "lions-light"]),
@@ -132,6 +138,9 @@ cms_vendor_signatures = [
     ("Indiegraf Media", ["indiegrafmedia", "indiegraf", "indiegraf media"]),
     ("Locable", ["locable", "locable.com", "locable media"]),
     ("SquareSpace", ["squarespace", "squarespace-cdn", "squarespace media"]),
+    ("Solutions by State News", ["SNworks", "solutions by state news", "snworks", "snworsceo"]),
+    ("Ghost", ["/ghost"]),
+
 ]
 
 # Snapshot limits
@@ -505,6 +514,7 @@ def detect_cms(homepage_html, sitemap_data):
             "Lion's Light": "ROAR",
             "Surf New Media": "Surf New Media",
             "Websites For Newspapers": "Websites For Newspapers",
+            "Solutions by State News": "SNworks"
         }
         platform = implied_platforms.get(vendor, platform)
 

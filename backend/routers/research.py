@@ -23,6 +23,7 @@ def get_db():
 
 class FeatureRunRequest(BaseModel):
     feature_ids: Optional[list[int]] = None
+    paper_ids: Optional[list[int]] = None
 
 
 @router.get("/sessions", response_model=schemas.ResearchSessionListResponse)
@@ -51,8 +52,17 @@ def get_session(session_id: int, db: Session = Depends(get_db)):
 @router.post("/sessions/{session_id}/run", response_model=schemas.ResearchFeatureRunListResponse)
 def run_session_features(session_id: int, payload: FeatureRunRequest | None = None, db: Session = Depends(get_db)):
     try:
-        features = research_service.run_feature_scans(db, session_id, payload.feature_ids if payload else None)
+        features = research_service.run_feature_scans(
+            db,
+            session_id,
+            payload.feature_ids if payload else None,
+            payload.paper_ids if payload else None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return schemas.ResearchFeatureRunListResponse(features=features)
+
+
+
+
 
