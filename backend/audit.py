@@ -175,6 +175,42 @@ DEFAULT_HEADERS = {
     "Accept-Encoding": "gzip, deflate",
 }
 
+MODERN_CHROME_HEADERS = {
+    **DEFAULT_HEADERS,
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_0) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.6422.142 Safari/537.36"
+    ),
+    "Sec-Ch-Ua": '"Not/A)Brand";v="99", "Google Chrome";v="125", "Chromium";v="125"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Upgrade-Insecure-Requests": "1",
+}
+
+MODERN_FIREFOX_HEADERS = {
+    **DEFAULT_HEADERS,
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:126.0) "
+        "Gecko/20100101 Firefox/126.0"
+    ),
+    "Upgrade-Insecure-Requests": "1",
+}
+
+BROWSER_HEADER_VARIANTS = [
+    DEFAULT_HEADERS,
+    MODERN_CHROME_HEADERS,
+    MODERN_FIREFOX_HEADERS,
+]
+
+REQUEST_PAUSE_SECONDS = 0.75
+REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+MANUAL_REVIEW_STATUSES = {
+    "manual review",
+    "manual review (timeout)",
+    "manual review (error)",
+}
+
 REQUEST_PAUSE_SECONDS = 0.75
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 MANUAL_REVIEW_STATUSES = {
@@ -236,59 +272,80 @@ def fetch_url(
     url,
     timeout=8,
     headers=None,
+    header_variants=None,
     retries=2,
     backoff=1.5,
     raise_on_timeout: bool = False,
     allow_brotli: bool = False,
 ):
-    headers = headers or DEFAULT_HEADERS
-    if allow_brotli:
-        headers = dict(headers)
-        headers["Accept-Encoding"] = "gzip, deflate, br"
+    base_headers = headers or DEFAULT_HEADERS
+    if header_variants is None:
+        raw_variants = BROWSER_HEADER_VARIANTS if headers is None else [base_headers]
+    else:
+        raw_variants = header_variants
+
+    normalized_variants = []
+    for variant in raw_variants:
+        merged = dict(variant or base_headers)
+        if allow_brotli:
+            merged["Accept-Encoding"] = "gzip, deflate, br"
+        normalized_variants.append(merged)
+
     last_error = None
-    current_url = url
-    for attempt in range(retries + 1):
-        try:
-            resp = requests.get(current_url, timeout=timeout, headers=headers, allow_redirects=True)
-            if resp.status_code == 403 and current_url.startswith("http://"):
-                # retry once with https if forbidden over http
-                https_url = "https://" + current_url[len("http://"):]
-                current_url = https_url
-                continue
-            if resp.status_code == 403 and attempt < retries:
-                last_error = f"HTTP 403 for {current_url}"
-                time.sleep(backoff * (attempt + 1))
-                continue
-            if resp.status_code == 429 and attempt < retries:
-                last_error = f"HTTP 429 for {current_url}"
-                time.sleep(backoff * (attempt + 1))
-                continue
-            if resp.status_code == 200:
-                content = resp.content
-                encoding_header = (resp.headers.get("Content-Encoding") or "").lower()
-                if encoding_header == "br":
-                    if not allow_brotli or brotli is None:
-                        last_error = "Received Brotli-compressed response but Brotli support unavailable"
-                        return None, resp.status_code, last_error
-                    try:
-                        content = brotli.decompress(content)
-                    except Exception as exc:  # pragma: no cover - depends on remote data
-                        last_error = f"Brotli decode failed: {exc}"
-                        return None, resp.status_code, last_error
-                text = _decode_html_bytes(content, resp.encoding or getattr(resp, "apparent_encoding", None))
-                return text, resp.status_code, None
-            last_error = f"HTTP {resp.status_code}"
-            return None, resp.status_code, None
-        except requests.exceptions.Timeout as exc:
-            last_error = str(exc)
-            if raise_on_timeout:
-                raise HomepageFetchTimeoutError(current_url, last_error) from exc
-            if attempt == retries:
-                return None, None, last_error
-        except Exception as exc:
-            last_error = str(exc)
-            if attempt == retries:
-                return None, None, last_error
+    for variant_index, variant_headers in enumerate(normalized_variants):
+        current_url = url
+        for attempt in range(retries + 1):
+            try:
+                resp = requests.get(current_url, timeout=timeout, headers=variant_headers, allow_redirects=True)
+                if resp.status_code == 403 and current_url.startswith("http://"):
+                    # retry once with https if forbidden over http
+                    https_url = "https://" + current_url[len("http://"):]
+                    current_url = https_url
+                    continue
+                if resp.status_code == 403:
+                    last_error = f"HTTP 403 for {current_url}"
+                    if attempt < retries:
+                        time.sleep(backoff * (attempt + 1))
+                        continue
+                    if variant_index < len(normalized_variants) - 1:
+                        break  # try next browser header variant
+                    return None, resp.status_code, last_error
+                if resp.status_code == 429:
+                    last_error = f"HTTP 429 for {current_url}"
+                    if attempt < retries:
+                        time.sleep(backoff * (attempt + 1))
+                        continue
+                    if variant_index < len(normalized_variants) - 1:
+                        break
+                    return None, resp.status_code, last_error
+                if resp.status_code == 200:
+                    content = resp.content
+                    encoding_header = (resp.headers.get("Content-Encoding") or "").lower()
+                    if encoding_header == "br":
+                        if not allow_brotli or brotli is None:
+                            last_error = "Received Brotli-compressed response but Brotli support unavailable"
+                            return None, resp.status_code, last_error
+                        try:
+                            content = brotli.decompress(content)
+                        except Exception as exc:  # pragma: no cover - depends on remote data
+                            last_error = f"Brotli decode failed: {exc}"
+                            return None, resp.status_code, last_error
+                    text = _decode_html_bytes(content, resp.encoding or getattr(resp, "apparent_encoding", None))
+                    return text, resp.status_code, None
+                last_error = f"HTTP {resp.status_code}"
+                return None, resp.status_code, None
+            except requests.exceptions.Timeout as exc:
+                last_error = str(exc)
+                if raise_on_timeout:
+                    raise HomepageFetchTimeoutError(current_url, last_error) from exc
+                if attempt == retries:
+                    return None, None, last_error
+            except Exception as exc:
+                last_error = str(exc)
+                if attempt == retries:
+                    return None, None, last_error
+        else:
+            continue
     return None, None, last_error
 
 # Helper: check sitemap.xml

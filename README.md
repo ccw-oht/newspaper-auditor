@@ -90,6 +90,33 @@ python -m backend.audit path/to/input.csv [--force]
 
 The command outputs progress to the terminal and writes `<basename>_Audit.csv` in the same directory as the input file.
 
+### Browser Automation for Anti-Bot Protection
+
+The audit script now includes automatic browser automation fallback for websites with anti-bot protection (like McClatchy sites). This uses Playwright with stealth mode to bypass JavaScript-based protection.
+
+**Setup:**
+1. Install Python dependencies (includes `playwright` and `playwright-stealth`):
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Install Playwright browsers:
+   ```bash
+   playwright install chromium
+   ```
+
+**How it works:**
+- The script first attempts standard HTTP requests with browser-like headers
+- If a request fails with HTTP 403 (Forbidden) or the domain is known to have anti-bot protection, it automatically falls back to browser automation
+- Browser automation uses stealth mode to avoid detection
+- Known protected domains (McClatchy sites) automatically use browser automation
+
+**Known protected domains:**
+- McClatchy newspaper sites (miamiherald.com, sacbee.com, kansascity.com, etc.)
+- Automatically detected by domain matching
+
+You can add more domains to the `BROWSER_REQUIRED_DOMAINS` set in `backend/audit.py` if needed.
+
 ## CLI: Paper Loader
 `backend/load_papers.py` ingests CSV rows into the `papers` table, handling deduplication and optional truncation. Unknown CSV columns are stored inside the `extra_data` JSON field.
 
