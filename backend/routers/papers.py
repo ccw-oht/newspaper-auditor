@@ -645,6 +645,7 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
         "Website URL",
         "Phone",
         "Email",
+        "Primary Contact",
         "Mailing Address",
         "County",
         "Chain Owner",
@@ -658,8 +659,34 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
         "Audit Sources",
         "Audit Notes",
         "Latest Audit Timestamp",
-        "Extra Data",
     ]
+
+    extra_keys: list[str] = []
+    extra_key_set: set[str] = set()
+    header_key_set = {header.strip().lower() for header in headers}
+
+    for paper_id in payload.ids:
+        mapping = mapping_by_id.get(paper_id)
+        if not mapping:
+            continue
+
+        paper: Paper = mapping[Paper]
+        extra_data = paper.extra_data or {}
+        if isinstance(extra_data, dict):
+            for key in extra_data.keys():
+                if not isinstance(key, str):
+                    continue
+                cleaned = key.strip()
+                if not cleaned:
+                    continue
+                if cleaned.lower() in header_key_set:
+                    continue
+                if cleaned not in extra_key_set:
+                    extra_key_set.add(cleaned)
+                    extra_keys.append(cleaned)
+
+    if extra_keys:
+        headers = headers + extra_keys
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -672,7 +699,7 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
 
         paper: Paper = mapping[Paper]
         timestamp = mapping.get("timestamp")
-        extra = json.dumps(paper.extra_data or {}, ensure_ascii=False)
+        extra_data = paper.extra_data or {}
 
         latest_audit_summary = None
         audit_id = mapping.get("audit_id")
@@ -734,6 +761,19 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             if override_fields:
                 notes_value = (notes_value or "") + (" | " if notes_value else "") + f"Overrides applied: {override_fields}"
 
+        contact_lookup = {}
+        if isinstance(extra_data, dict):
+            lookup_value = extra_data.get("contact_lookup")
+            if isinstance(lookup_value, dict):
+                contact_lookup = lookup_value
+        primary_contact = None
+        if isinstance(contact_lookup, dict):
+            raw_primary = contact_lookup.get("primary_contact")
+            if isinstance(raw_primary, str):
+                primary_contact = raw_primary.strip() or None
+            elif raw_primary is not None:
+                primary_contact = str(raw_primary).strip() or None
+
         row = [
             paper.id,
             paper.paper_name or "",
@@ -742,6 +782,7 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             paper.website_url or "",
             paper.phone or "",
             paper.email or "",
+            primary_contact or "",
             paper.mailing_address or "",
             paper.county or "",
             display_chain or "",
@@ -755,8 +796,20 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             sources_value or "",
             notes_value or "",
             timestamp.isoformat() if timestamp else "",
-            extra,
         ]
+
+        extra_values = []
+        for key in extra_keys:
+            value = None
+            if isinstance(extra_data, dict):
+                value = extra_data.get(key)
+            if value is None:
+                extra_values.append("")
+            elif isinstance(value, (dict, list)):
+                extra_values.append(json.dumps(value, ensure_ascii=False))
+            else:
+                extra_values.append(str(value))
+        row.extend(extra_values)
 
         writer.writerow(row)
 
