@@ -372,7 +372,6 @@
         <label>
           Primary Contact
           <input bind:value={primaryContact} placeholder="Add primary contact" />
-          <input bind:value={primaryContact} placeholder="Add primary contact" />
         </label>
         <label>
           Email
