@@ -62,6 +62,5 @@ migrate-email: install
 
 migrate-publication-frequency: install
 	. $(VENV)/bin/activate && $(PYTHON) -m backend.migrations.add_publication_frequency
-
 db-shell:
 	cd docker && docker compose exec db psql -U audit_user -d auditdb

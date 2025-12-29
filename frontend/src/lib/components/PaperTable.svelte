@@ -188,7 +188,6 @@ function goToLast() {
     }
     expandedIds = next;
   }
-
   function showHoverDetails(id: number) {
     hoverExpandedId = id;
   }
@@ -257,10 +256,7 @@ function goToLast() {
             {/if}
           </button>
         </th>
-        <th
-          class="sortable audit-summary"
-          aria-sort={columnAriaSort('timestamp')}
-        >
+        <th class="sortable audit-summary" aria-sort={columnAriaSort('timestamp')}>
           <button type="button" on:click={() => toggleSort('timestamp')}>
             Last Audit
             {#if sortField === 'timestamp'}
@@ -509,7 +505,6 @@ function goToLast() {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-
   a.paper-link {
     color: #111827;
     font-weight: 600;
@@ -598,7 +593,6 @@ function goToLast() {
     background: #f3f4f6;
     color: #374151;
   }
-
   .action-buttons {
     display: flex;
     gap: 0.5rem;
@@ -614,7 +608,6 @@ function goToLast() {
   .detail-content {
     overflow: hidden;
   }
-
   .detail-grid {
     display: grid;
     gap: 1rem;

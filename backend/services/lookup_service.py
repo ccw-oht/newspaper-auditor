@@ -87,7 +87,6 @@ class NewsContact(BaseModel):
             return [cleaned] if cleaned else []
         return [str(value).strip()] if str(value).strip() else []
 
-
 def _get_client():
     global _CLIENT
     if genai is None or types is None:
@@ -139,8 +138,6 @@ def _normalize_phone(value: Optional[str]) -> Optional[str]:
         return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
     cleaned = value.strip()
     return cleaned or None
-
-
 def _build_prompt(paper: Paper) -> str:
     parts = [
         f"Newspaper name: {paper.paper_name}",
