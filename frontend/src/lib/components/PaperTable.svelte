@@ -2,7 +2,7 @@
   /* eslint-env browser */
 import type { AuditSummary, PaperSummary } from '$lib/types';
 import { createEventDispatcher } from 'svelte';
-import { formatRelativeTime } from '$lib/formatters';
+import { slide } from 'svelte/transition';
 
 export let items: PaperSummary[] = [];
 export let total = 0;
@@ -40,6 +40,7 @@ $: endEntry = total === 0 ? 0 : Math.min(offset + safeLimit, total);
   let lastToggledIndex: number | null = null;
   let itemsFingerprint: string | null = null;
   let expandedIds = new Set<number>();
+  let hoverExpandedId: number | null = null;
 
   $: selectedSet = new Set(selected);
   $: allVisibleSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
@@ -171,11 +172,11 @@ function goToLast() {
   }
 
   const detailFields = [
-    { key: 'has_pdf', label: 'Has PDF' },
-    { key: 'pdf_only', label: 'PDF Only' },
-    { key: 'paywall', label: 'Paywall' },
-    { key: 'notices', label: 'Notices' },
-    { key: 'responsive', label: 'Responsive' }
+    { key: 'has_pdf', label: 'Has PDF', short: 'PDF' },
+    { key: 'pdf_only', label: 'PDF Only', short: 'Only' },
+    { key: 'paywall', label: 'Paywall', short: 'Pay' },
+    { key: 'notices', label: 'Notices', short: 'Not' },
+    { key: 'responsive', label: 'Responsive', short: 'Resp' }
   ];
 
   function toggleDetails(id: number) {
@@ -186,6 +187,16 @@ function goToLast() {
       next.add(id);
     }
     expandedIds = next;
+  }
+
+  function showHoverDetails(id: number) {
+    hoverExpandedId = id;
+  }
+
+  function clearHoverDetails(id: number) {
+    if (hoverExpandedId === id) {
+      hoverExpandedId = null;
+    }
   }
 </script>
 
@@ -247,7 +258,7 @@ function goToLast() {
           </button>
         </th>
         <th
-          class="sortable"
+          class="sortable audit-summary"
           aria-sort={columnAriaSort('timestamp')}
         >
           <button type="button" on:click={() => toggleSort('timestamp')}>
@@ -267,7 +278,7 @@ function goToLast() {
         </tr>
       {:else}
         {#each items as item, index}
-          <tr class:expanded={expandedIds.has(item.id)}>
+          <tr class:expanded={expandedIds.has(item.id) || hoverExpandedId === item.id}>
             <td class="select">
               <input
                 type="checkbox"
@@ -276,7 +287,7 @@ function goToLast() {
                 aria-label={`Select ${item.paper_name ?? 'paper'}`}
               />
             </td>
-            <td>
+            <td class="paper-cell">
               <a class="paper-link" href={`/papers/${item.id}`}>{item.paper_name ?? '—'}</a>
             </td>
             <td>{item.city ?? '—'}</td>
@@ -295,7 +306,19 @@ function goToLast() {
                 —
               {/if}
             </td>
-            <td>{item.latest_audit?.timestamp ? formatRelativeTime(item.latest_audit.timestamp) : 'Never'}</td>
+            <td class="audit-summary">
+              <div class="audit-icons" aria-label="Latest audit results">
+                {#each detailFields as field}
+                  <span
+                    class={`audit-icon ${statusClass(field.key, auditFieldValue(item.latest_audit, field.key))}${isOverridden(item.latest_audit, field.key) ? ' overridden' : ''}`}
+                    title={`${field.label}: ${auditFieldValue(item.latest_audit, field.key) ?? '—'}`}
+                    aria-label={`${field.label}: ${auditFieldValue(item.latest_audit, field.key) ?? '—'}`}
+                  >
+                    {field.short}
+                  </span>
+                {/each}
+              </div>
+            </td>
             <td class="actions">
               <div class="action-buttons">
                 <button type="button" disabled={loading} on:click={() => dispatch('audit', { id: item.id })}>
@@ -313,40 +336,44 @@ function goToLast() {
                   type="button"
                   class="secondary"
                   on:click={() => toggleDetails(item.id)}
-                  aria-expanded={expandedIds.has(item.id)}
+                  on:mouseenter={() => showHoverDetails(item.id)}
+                  on:mouseleave={() => clearHoverDetails(item.id)}
+                  aria-expanded={expandedIds.has(item.id) || hoverExpandedId === item.id}
                 >
                   {expandedIds.has(item.id) ? 'Hide' : 'Details'}
                 </button>
               </div>
             </td>
           </tr>
-          {#if expandedIds.has(item.id)}
+          {#if expandedIds.has(item.id) || hoverExpandedId === item.id}
             <tr class="detail-row">
               <td colspan="7">
-                <div class="detail-grid">
-                  <div class="detail-block">
-                    <h4>Audit</h4>
-                    <div class="pill-row">
-                      {#each detailFields as field}
-                        <div class={`detail-pill ${statusClass(field.key, auditFieldValue(item.latest_audit, field.key))}${isOverridden(item.latest_audit, field.key) ? ' overridden' : ''}`}>
-                          <span class="pill-label">{field.label}</span>
-                          <span class="pill-value">{auditFieldValue(item.latest_audit, field.key) ?? '—'}</span>
-                        </div>
-                      {/each}
+                <div class="detail-content" transition:slide={{ duration: 360 }}>
+                  <div class="detail-grid">
+                    <div class="detail-block">
+                      <h4>Audit</h4>
+                      <div class="pill-row">
+                        {#each detailFields as field}
+                          <div class={`detail-pill ${statusClass(field.key, auditFieldValue(item.latest_audit, field.key))}${isOverridden(item.latest_audit, field.key) ? ' overridden' : ''}`}>
+                            <span class="pill-label">{field.label}</span>
+                            <span class="pill-value">{auditFieldValue(item.latest_audit, field.key) ?? '—'}</span>
+                          </div>
+                        {/each}
+                      </div>
                     </div>
-                  </div>
-                  <div class="detail-block">
-                    <h4>Platform</h4>
-                    <div class="detail-line"><span>Chain:</span> {item.chain_owner ?? '—'}</div>
-                    <div class="detail-line"><span>CMS platform:</span> {item.cms_platform ?? '—'}</div>
-                    <div class="detail-line"><span>CMS vendor:</span> {item.cms_vendor ?? '—'}</div>
-                    <div class="detail-line"><span>Frequency:</span> {item.publication_frequency ?? '—'}</div>
-                  </div>
-                  <div class="detail-block">
-                    <h4>Contact</h4>
-                    <div class="detail-line"><span>Primary contact:</span> {primaryContact(item) ?? '—'}</div>
-                    <div class="detail-line"><span>Phone:</span> {item.phone ?? '—'}</div>
-                    <div class="detail-line"><span>Email:</span> {item.email ?? '—'}</div>
+                    <div class="detail-block">
+                      <h4>Platform</h4>
+                      <div class="detail-line"><span>Chain:</span> {item.chain_owner ?? '—'}</div>
+                      <div class="detail-line"><span>CMS platform:</span> {item.cms_platform ?? '—'}</div>
+                      <div class="detail-line"><span>CMS vendor:</span> {item.cms_vendor ?? '—'}</div>
+                      <div class="detail-line"><span>Frequency:</span> {item.publication_frequency ?? '—'}</div>
+                    </div>
+                    <div class="detail-block">
+                      <h4>Contact</h4>
+                      <div class="detail-line"><span>Primary contact:</span> {primaryContact(item) ?? '—'}</div>
+                      <div class="detail-line"><span>Phone:</span> {item.phone ?? '—'}</div>
+                      <div class="detail-line"><span>Email:</span> {item.email ?? '—'}</div>
+                    </div>
                   </div>
                 </div>
               </td>
@@ -466,6 +493,23 @@ function goToLast() {
     width: 18rem;
   }
 
+  th.audit-summary,
+  td.audit-summary {
+    width: 19rem;
+  }
+
+  td.paper-cell {
+    max-width: 18rem;
+  }
+
+  td.paper-cell a.paper-link {
+    display: inline-block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   a.paper-link {
     color: #111827;
     font-weight: 600;
@@ -503,6 +547,58 @@ function goToLast() {
     color: #ffffff;
   }
 
+  .audit-icons {
+    display: inline-flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .audit-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.25rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    border: 1px solid #e5e7eb;
+    background: #f3f4f6;
+    color: #374151;
+  }
+
+  .audit-icon.overridden {
+    border-color: rgba(59, 130, 246, 0.35);
+    background: rgba(219, 234, 254, 0.85);
+    color: #1d4ed8;
+  }
+
+  .audit-icon.status.yes {
+    border-color: rgba(22, 163, 74, 0.25);
+    background: rgba(220, 252, 231, 0.85);
+    color: #166534;
+  }
+
+  .audit-icon.status.no {
+    border-color: rgba(239, 68, 68, 0.25);
+    background: rgba(254, 226, 226, 0.85);
+    color: #b91c1c;
+  }
+
+  .audit-icon.status.review {
+    border-color: rgba(245, 158, 11, 0.25);
+    background: rgba(254, 243, 199, 0.85);
+    color: #b45309;
+  }
+
+  .audit-icon.status.neutral {
+    border-color: #e5e7eb;
+    background: #f3f4f6;
+    color: #374151;
+  }
+
   .action-buttons {
     display: flex;
     gap: 0.5rem;
@@ -513,6 +609,10 @@ function goToLast() {
   .detail-row td {
     background: #f9fafb;
     padding: 0;
+  }
+
+  .detail-content {
+    overflow: hidden;
   }
 
   .detail-grid {
