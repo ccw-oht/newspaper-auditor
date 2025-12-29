@@ -18,6 +18,7 @@
   let commitResult: ImportCommitResult | null = null;
 
   let actionSelections: Record<string, string> = {};
+  let fieldActionSelections: Record<string, Record<string, string>> = {};
 
   function onFileChange(event: Event) {
     const target = event.currentTarget as HTMLInputElement | null;
@@ -30,17 +31,63 @@
   function defaultAction(row: ImportPreviewRow): string {
     if (row.allowed_actions.length === 0) return 'skip';
     if (row.status === 'new' && row.allowed_actions.includes('insert')) return 'insert';
-    if (row.status === 'update' && row.allowed_actions.includes('overwrite')) return 'overwrite';
+    if (row.status === 'update' && row.allowed_actions.includes('skip')) return 'skip';
     if (row.status === 'duplicate' && row.allowed_actions.includes('skip')) return 'skip';
+    if (row.status === 'possible_duplicate' && row.allowed_actions.includes('skip')) return 'skip';
     return row.allowed_actions[0];
+  }
+
+  function actionLabel(action: string): string {
+    switch (action) {
+      case 'insert':
+        return 'insert new entry';
+      case 'overwrite':
+        return 'overwrite all';
+      case 'skip':
+        return 'skip all';
+      default:
+        return action.replace(/_/g, ' ');
+    }
+  }
+
+  function initialFieldActions(row: ImportPreviewRow): Record<string, string> {
+    const fieldActions: Record<string, string> = {};
+    Object.keys(row.differences || {})
+      .filter((field) => field !== 'extra_data')
+      .forEach((field) => {
+        const existingValue = row.existing?.[field];
+        const isEmpty =
+          existingValue === null ||
+          existingValue === undefined ||
+          (typeof existingValue === 'string' && existingValue.trim() === '');
+        fieldActions[field] = isEmpty ? 'overwrite' : 'keep';
+      });
+    return fieldActions;
+  }
+
+  function hasOverwriteField(row: ImportPreviewRow, fieldActions: Record<string, string>): boolean {
+    if (!row.existing) return false;
+    return Object.values(fieldActions).some((value) => value === 'overwrite');
   }
 
   function ensureDefaults(response: ImportPreviewResponse) {
     actionSelections = {};
+    fieldActionSelections = {};
     response.rows.forEach((row) => {
-      actionSelections[row.temp_id] = defaultAction(row);
+      if (row.existing && ['update', 'duplicate', 'possible_duplicate'].includes(row.status)) {
+        const fieldActions = initialFieldActions(row);
+        fieldActionSelections[row.temp_id] = fieldActions;
+        if (hasOverwriteField(row, fieldActions) && row.allowed_actions.includes('overwrite')) {
+          actionSelections[row.temp_id] = 'overwrite';
+        } else {
+          actionSelections[row.temp_id] = defaultAction(row);
+        }
+      } else {
+        actionSelections[row.temp_id] = defaultAction(row);
+      }
     });
     actionSelections = { ...actionSelections };
+    fieldActionSelections = { ...fieldActionSelections };
   }
 
   async function handlePreview() {
@@ -59,6 +106,7 @@
     } catch (err) {
       preview = null;
       actionSelections = {};
+      fieldActionSelections = {};
       previewError = err instanceof Error ? err.message : 'Failed to preview import.';
     } finally {
       previewing = false;
@@ -68,11 +116,37 @@
   function onActionChange(row: ImportPreviewRow, event: Event) {
     const target = event.currentTarget as HTMLSelectElement | null;
     if (!target) return;
-    actionSelections = { ...actionSelections, [row.temp_id]: target.value };
+    const nextAction = target.value;
+    actionSelections = { ...actionSelections, [row.temp_id]: nextAction };
+    if (!row.existing || !['update', 'duplicate', 'possible_duplicate'].includes(row.status)) {
+      return;
+    }
+    const current = fieldActionSelections[row.temp_id] ?? initialFieldActions(row);
+    let updated: Record<string, string> = { ...current };
+    if (nextAction === 'overwrite') {
+      updated = Object.fromEntries(Object.keys(current).map((field) => [field, 'overwrite']));
+    } else if (nextAction === 'skip' || nextAction === 'merge_extra') {
+      updated = Object.fromEntries(Object.keys(current).map((field) => [field, 'keep']));
+    }
+    fieldActionSelections = { ...fieldActionSelections, [row.temp_id]: updated };
   }
 
   function resolveAction(row: ImportPreviewRow): string {
     return actionSelections[row.temp_id] ?? defaultAction(row);
+  }
+
+  function resolveFieldAction(row: ImportPreviewRow, field: string): string {
+    return fieldActionSelections[row.temp_id]?.[field] ?? 'overwrite';
+  }
+
+  function onFieldActionChange(row: ImportPreviewRow, field: string, event: Event) {
+    const target = event.currentTarget as HTMLSelectElement | null;
+    if (!target) return;
+    const current = fieldActionSelections[row.temp_id] ?? {};
+    fieldActionSelections = {
+      ...fieldActionSelections,
+      [row.temp_id]: { ...current, [field]: target.value }
+    };
   }
 
   async function handleCommit() {
@@ -85,13 +159,15 @@
         action: resolveAction(row),
         data: row.data,
         existing_id: (row.existing?.id as number | undefined) ?? null,
-        status: row.status
+        status: row.status,
+        field_actions: fieldActionSelections[row.temp_id] ?? null
       }));
 
       const result = await commitImport({ rows });
       commitResult = result;
       preview = null;
       actionSelections = {};
+      fieldActionSelections = {};
       file = null;
       const input = document.getElementById('csv-input') as HTMLInputElement | null;
       if (input) {
@@ -115,6 +191,7 @@
     commitError = null;
     commitResult = null;
     actionSelections = {};
+    fieldActionSelections = {};
     const input = document.getElementById('csv-input') as HTMLInputElement | null;
     if (input) {
       input.value = '';
@@ -152,6 +229,7 @@
         <span><strong>New:</strong> {preview.summary.new}</span>
         <span><strong>Updates:</strong> {preview.summary.update}</span>
         <span><strong>Duplicates:</strong> {preview.summary.duplicate}</span>
+        <span><strong>Possible duplicates:</strong> {preview.summary.possible_duplicate}</span>
         <span><strong>Invalid:</strong> {preview.summary.invalid}</span>
       </div>
 
@@ -178,7 +256,7 @@
                 <td>
                   <select value={resolveAction(row)} on:change={(event) => onActionChange(row, event)}>
                     {#each row.allowed_actions as action}
-                      <option value={action}>{action}</option>
+                      <option value={action}>{actionLabel(action)}</option>
                     {/each}
                   </select>
                 </td>
@@ -193,6 +271,16 @@
                           <span class="old">{String(diff.old ?? '—')}</span>
                           <span class="arrow">→</span>
                           <span class="new">{String(diff.new ?? '—')}</span>
+                          {#if row.existing && field !== 'extra_data' && ['update', 'duplicate', 'possible_duplicate'].includes(row.status) && resolveAction(row) !== 'skip'}
+                            <select
+                              class="field-action"
+                              value={resolveFieldAction(row, field)}
+                              on:change={(event) => onFieldActionChange(row, field, event)}
+                            >
+                              <option value="overwrite">overwrite</option>
+                              <option value="keep">keep existing</option>
+                            </select>
+                          {/if}
                         </li>
                       {/each}
                     </ul>
@@ -385,6 +473,12 @@
   .arrow {
     margin: 0 0.25rem;
     color: #6b7280;
+  }
+
+  .field-action {
+    margin-left: 0.5rem;
+    width: auto;
+    min-width: 150px;
   }
 
   .actions {

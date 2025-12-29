@@ -1,4 +1,4 @@
-.PHONY: help dev-backend dev-frontend compose-up compose-down compose-down-clean ingest install frontend-install migrate-email db-shell
+.PHONY: help dev-backend dev-frontend compose-up compose-down compose-down-clean ingest install frontend-install migrate-email migrate-publication-frequency db-shell
 
 help:
 	@echo "Available targets:"
@@ -7,6 +7,7 @@ help:
 	@echo "  compose-up   - Start Postgres via docker compose"
 	@echo "  compose-down - Stop Postgres and remove containers"
 	@echo "  migrate-email - Add the email column to papers"
+	@echo "  migrate-publication-frequency - Add the publication_frequency column to papers"
 	@echo "  db-shell     - Open a psql shell in the Postgres container"
 	@echo "  ingest       - Example: make ingest CSV=path/to/file.csv"
 
@@ -58,6 +59,9 @@ ingest: install
 
 migrate-email: install
 	. $(VENV)/bin/activate && $(PYTHON) -m backend.migrations.add_paper_email
+
+migrate-publication-frequency: install
+	. $(VENV)/bin/activate && $(PYTHON) -m backend.migrations.add_publication_frequency
 
 db-shell:
 	cd docker && docker compose exec db psql -U audit_user -d auditdb

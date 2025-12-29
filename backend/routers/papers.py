@@ -32,6 +32,23 @@ def _normalize_filter(value: Optional[str]) -> Optional[str]:
     return cleaned if cleaned else None
 
 
+def _publication_frequency_value(paper: Paper) -> Optional[str]:
+    raw = paper.publication_frequency
+    if raw and raw.strip():
+        return raw.strip()
+    extra = paper.extra_data or {}
+    if isinstance(extra, dict):
+        for key in ("publication_frequency", "Frequency", "frequency"):
+            value = extra.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if value is not None:
+                cleaned = str(value).strip()
+                if cleaned:
+                    return cleaned
+    return None
+
+
 def _prioritized_value_expr(audit_column, paper_column, override_key: str, label: str):
     """
     Create a SQL expression that prioritizes: override > audit (non-manual-review) > paper > audit (any)
@@ -405,6 +422,7 @@ def list_papers(
                 email=paper.email,
                 mailing_address=paper.mailing_address,
                 county=paper.county,
+                publication_frequency=_publication_frequency_value(paper),
                 chain_owner=display_chain,
                 cms_platform=display_platform,
                 cms_vendor=display_vendor,
@@ -648,6 +666,7 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
         "Primary Contact",
         "Mailing Address",
         "County",
+        "Frequency",
         "Chain Owner",
         "CMS Platform",
         "CMS Vendor",
@@ -785,6 +804,7 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             primary_contact or "",
             paper.mailing_address or "",
             paper.county or "",
+            _publication_frequency_value(paper) or "",
             display_chain or "",
             display_platform or "",
             display_vendor or "",
@@ -892,6 +912,7 @@ def update_paper(
         "email",
         "mailing_address",
         "county",
+        "publication_frequency",
         "chain_owner",
         "cms_platform",
         "cms_vendor",
@@ -1010,6 +1031,7 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
         email=paper.email,
         mailing_address=paper.mailing_address,
         county=paper.county,
+        publication_frequency=_publication_frequency_value(paper),
         chain_owner=display_chain,
         cms_platform=display_platform,
         cms_vendor=display_vendor,

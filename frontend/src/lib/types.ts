@@ -37,6 +37,7 @@ export interface PaperSummary {
   email: string | null;
   mailing_address: string | null;
   county: string | null;
+  publication_frequency: string | null;
   chain_owner: string | null;
   cms_platform: string | null;
   cms_vendor: string | null;
@@ -61,6 +62,7 @@ export interface PaperDetail {
   email: string | null;
   mailing_address: string | null;
   county: string | null;
+  publication_frequency: string | null;
   chain_owner: string | null;
   cms_platform: string | null;
   cms_vendor: string | null;
@@ -79,6 +81,7 @@ export interface PaperUpdatePayload {
   email?: string | null;
   mailing_address?: string | null;
   county?: string | null;
+  publication_frequency?: string | null;
   chain_owner?: string | null;
   cms_platform?: string | null;
   cms_vendor?: string | null;
@@ -156,6 +159,7 @@ export interface ImportPreviewSummary {
   new: number;
   update: number;
   duplicate: number;
+  possible_duplicate: number;
   invalid: number;
 }
 
@@ -170,6 +174,7 @@ export interface ImportCommitRow {
   data: Record<string, unknown>;
   existing_id?: number | null;
   status?: string | null;
+  field_actions?: Record<string, string> | null;
 }
 
 export interface ImportCommitRequest {

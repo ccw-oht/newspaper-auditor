@@ -25,6 +25,7 @@ class Paper(Base):
     email = Column(String)
     mailing_address = Column(String)
     county = Column(String)
+    publication_frequency = Column(String)
     chain_owner = Column(String)
     cms_platform = Column(String)
     cms_vendor = Column(String)

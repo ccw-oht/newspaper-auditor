@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 import uuid
+from difflib import SequenceMatcher
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Tuple
 
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import schemas
@@ -29,6 +31,7 @@ ALLOWED_ACTIONS = {
     "new": ["insert", "skip"],
     "update": ["overwrite", "merge_extra", "skip"],
     "duplicate": ["skip", "overwrite", "merge_extra", "insert"],
+    "possible_duplicate": ["skip", "overwrite", "merge_extra", "insert"],
     "invalid": ["skip"],
 }
 
@@ -38,7 +41,7 @@ PROTECTED_METADATA_FIELDS = ("chain_owner", "cms_platform", "cms_vendor")
 def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[StagedRow], Dict[str, int]]:
     normalized = normalize_columns(frame)
     staged: List[StagedRow] = []
-    summary = {"new": 0, "update": 0, "duplicate": 0, "invalid": 0}
+    summary = {"new": 0, "update": 0, "duplicate": 0, "possible_duplicate": 0, "invalid": 0}
 
     cache: Dict[Tuple[str, str, str], Paper | None] = {}
     seen_in_file: Dict[Tuple[str, str, str], str] = {}
@@ -72,6 +75,13 @@ def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[Staged
         status = "new" if existing is None else "update"
         differences: Dict[str, Dict[str, str | None]] = {}
 
+        if existing is None:
+            fuzzy_match = _find_fuzzy_match(session, data)
+            if fuzzy_match is not None:
+                existing = fuzzy_match
+                status = "possible_duplicate"
+                issues.append(f"Possible duplicate of '{existing.paper_name}' (id {existing.id}).")
+                differences = _compute_differences(existing, data)
         if existing:
             differences = _compute_differences(existing, data)
             if not differences:
@@ -103,17 +113,88 @@ def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[Staged
 
 
 def _fetch_existing(session: Session, data: Dict[str, str | None]) -> Paper | None:
+    city_value = (data.get("city") or "").strip().lower()
+    name_value = (data.get("paper_name") or "").strip().lower()
     stmt = select(Paper).where(
-        Paper.paper_name == data["paper_name"],
-        Paper.city == data["city"],
+        func.lower(func.trim(Paper.paper_name)) == name_value,
+        func.lower(func.trim(Paper.city)) == city_value,
     )
     state_value = data.get("state")
     if state_value:
-        stmt = stmt.where(Paper.state == state_value)
+        stmt = stmt.where(func.lower(func.trim(Paper.state)) == state_value.strip().lower())
     else:
-        stmt = stmt.where(Paper.state.is_(None))
+        stmt = stmt.where(
+            (Paper.state.is_(None)) | (func.trim(Paper.state) == "")
+        )
 
     return session.execute(stmt).scalars().first()
+
+
+def _normalize_name(value: str) -> str:
+    cleaned = value.strip().lower()
+    cleaned = cleaned.replace("&", " and ")
+    cleaned = re.sub(r"[^\w\s,]", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    for suffix in (", the", ", a", ", an"):
+        if cleaned.endswith(suffix):
+            base = cleaned[: -len(suffix)].strip()
+            article = suffix.replace(",", "").strip()
+            cleaned = f"{article} {base}".strip()
+            break
+    return cleaned
+
+
+def _name_variants(value: str) -> set[str]:
+    variants = {_normalize_name(value)}
+    for article in ("the ", "a ", "an "):
+        if any(name.startswith(article) for name in variants):
+            for name in list(variants):
+                if name.startswith(article):
+                    variants.add(name[len(article):])
+    return {name for name in variants if name}
+
+
+def _similarity(a: str, b: str) -> float:
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _find_fuzzy_match(session: Session, data: Dict[str, str | None]) -> Paper | None:
+    name = data.get("paper_name") or ""
+    city = data.get("city") or ""
+    if not name.strip() or not city.strip():
+        return None
+
+    stmt = select(Paper).where(func.lower(func.trim(Paper.city)) == city.strip().lower())
+    state_value = data.get("state")
+    if state_value:
+        stmt = stmt.where(func.lower(func.trim(Paper.state)) == state_value.strip().lower())
+    else:
+        stmt = stmt.where(
+            (Paper.state.is_(None)) | (func.trim(Paper.state) == "")
+        )
+
+    candidates = session.execute(stmt).scalars().all()
+    if not candidates:
+        return None
+
+    incoming_variants = _name_variants(name)
+    best_match = None
+    best_score = 0.0
+    for candidate in candidates:
+        candidate_name = candidate.paper_name or ""
+        if not candidate_name.strip():
+            continue
+        candidate_variants = _name_variants(candidate_name)
+        score = max(
+            _similarity(a, b) for a in incoming_variants for b in candidate_variants
+        )
+        if score > best_score:
+            best_score = score
+            best_match = candidate
+
+    if best_match and best_score >= 0.9:
+        return best_match
+    return None
 
 
 def _compute_differences(existing: Paper, data: Dict[str, str | None]) -> Dict[str, Dict[str, str | None]]:
@@ -199,6 +280,7 @@ def commit_rows(session: Session, commit_rows: Iterable[schemas.ImportCommitRow]
         normalized_data = _sanitize_row_data(item.data)
         extras = normalized_data.pop("extra_data", None)
         override_values = _collect_protected_overrides(normalized_data)
+        field_actions = item.field_actions or {}
 
         if action == "insert":
             paper = Paper(
@@ -218,14 +300,22 @@ def commit_rows(session: Session, commit_rows: Iterable[schemas.ImportCommitRow]
             if not existing:
                 raise ValueError(f"Existing paper {item.existing_id} not found")
 
-            if action == "overwrite":
+            if field_actions:
                 for field, value in normalized_data.items():
-                    setattr(existing, field, value)
-                existing.extra_data = extras or None
-            else:  # merge_extra
-                for field, value in normalized_data.items():
-                    if value:
+                    if field_actions.get(field) == "overwrite":
                         setattr(existing, field, value)
+            else:
+                if action == "overwrite":
+                    for field, value in normalized_data.items():
+                        setattr(existing, field, value)
+                else:  # merge_extra
+                    for field, value in normalized_data.items():
+                        if value:
+                            setattr(existing, field, value)
+
+            if action == "overwrite":
+                existing.extra_data = extras or None
+            else:
                 merged = {**(existing.extra_data or {}), **(extras or {})}
                 existing.extra_data = merged or None
 

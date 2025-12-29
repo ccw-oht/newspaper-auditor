@@ -43,6 +43,7 @@ def _snapshot_from_paper(paper: Paper) -> Dict[str, Any]:
         "email": paper.email,
         "mailing_address": paper.mailing_address,
         "county": paper.county,
+        "publication_frequency": paper.publication_frequency,
         "chain_owner": paper.chain_owner,
         "cms_platform": paper.cms_platform,
         "cms_vendor": paper.cms_vendor,

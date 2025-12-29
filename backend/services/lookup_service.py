@@ -27,6 +27,7 @@ class NewsContact(BaseModel):
     mailing_address: Optional[str] = None
     website: Optional[str] = None
     primary_contact: Optional[str] = None
+    publication_frequency: Optional[str] = None
     wikipedia_link: Optional[str] = None
     source_links: List[str] = []
 
@@ -52,7 +53,7 @@ class NewsContact(BaseModel):
             return joined or None
         return str(value).strip() or None
 
-    @field_validator("name", "email", "phone", "mailing_address", "website", "wikipedia_link", mode="before")
+    @field_validator("name", "email", "phone", "mailing_address", "website", "wikipedia_link", "publication_frequency", mode="before")
     @classmethod
     def _coerce_text_fields(cls, value: Any) -> Optional[str]:
         if value is None:
@@ -157,7 +158,7 @@ def _build_prompt(paper: Paper) -> str:
     details = "\n".join(parts)
     return (
         "Find the official editorial contact info for the newspaper listed below. "
-        "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, "
+        "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, publication_frequency, "
         "wikipedia_link, source_links. Use null for unknown values.\n\n"
         f"{details}"
     )
@@ -214,6 +215,8 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         updates["email"] = _clean_str(contact.email)
     if _is_missing(paper.mailing_address) and contact.mailing_address:
         updates["mailing_address"] = _clean_str(contact.mailing_address)
+    if _is_missing(paper.publication_frequency) and contact.publication_frequency:
+        updates["publication_frequency"] = _clean_str(contact.publication_frequency)
 
     for field, value in updates.items():
         setattr(paper, field, value)
@@ -225,6 +228,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "primary_contact": _clean_str(contact.primary_contact),
         "contact_name": _clean_str(contact.name),
         "website": _clean_str(contact.website),
+        "publication_frequency": _clean_str(contact.publication_frequency),
     }
 
     extra = dict(paper.extra_data or {})

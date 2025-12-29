@@ -35,6 +35,7 @@ class PaperOut(BaseModel):
     email: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
+    publication_frequency: Optional[str] = None
     chain_owner: Optional[str] = None
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
@@ -91,6 +92,7 @@ class PaperSummary(BaseModel):
     email: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
+    publication_frequency: Optional[str] = None
     chain_owner: Optional[str] = None
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
@@ -128,6 +130,7 @@ class PaperDetail(BaseModel):
     email: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
+    publication_frequency: Optional[str] = None
     chain_owner: Optional[str] = None
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
@@ -145,6 +148,7 @@ class PaperUpdate(BaseModel):
     email: Optional[str] = Field(default=None)
     mailing_address: Optional[str] = Field(default=None)
     county: Optional[str] = Field(default=None)
+    publication_frequency: Optional[str] = Field(default=None)
     chain_owner: Optional[str] = Field(default=None)
     cms_platform: Optional[str] = Field(default=None)
     cms_vendor: Optional[str] = Field(default=None)
@@ -166,6 +170,7 @@ class ImportPreviewSummary(BaseModel):
     new: int = 0
     update: int = 0
     duplicate: int = 0
+    possible_duplicate: int = 0
     invalid: int = 0
 
 
@@ -180,6 +185,7 @@ class ImportCommitRow(BaseModel):
     data: Dict[str, Any]
     existing_id: Optional[int] = None
     status: Optional[str] = None
+    field_actions: Optional[Dict[str, str]] = None
 
 
 class ImportCommitRequest(BaseModel):

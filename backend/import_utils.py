@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Iterator, Tuple
+from typing import Any, Dict, Iterable, Iterator, Tuple
 
 import pandas as pd
 
@@ -15,6 +15,7 @@ COLUMN_ALIASES: Dict[str, Iterable[str]] = {
     "email": ["email", "e-mail"],
     "mailing_address": ["mailing address", "address"],
     "county": ["county"],
+    "publication_frequency": ["publication frequency", "frequency"],
     "chain_owner": ["chain owner", "owner", "chain"],
     "cms_platform": ["cms platform", "platform"],
     "cms_vendor": ["cms vendor", "vendor"],
@@ -30,6 +31,7 @@ BASE_FIELDS = [
     "email",
     "mailing_address",
     "county",
+    "publication_frequency",
     "chain_owner",
     "cms_platform",
     "cms_vendor",
@@ -72,19 +74,33 @@ def build_lookup_key(data: Dict[str, str | None]) -> Tuple[str, str, str]:
     )
 
 
-def iter_normalized_rows(frame: pd.DataFrame) -> Iterator[Tuple[Dict[str, str | None], Dict[str, str]]]:
+def iter_normalized_rows(frame: pd.DataFrame) -> Iterator[Tuple[Dict[str, str | None], Dict[str, Any]]]:
     known_fields = set(COLUMN_ALIASES.keys())
 
     for _, row in frame.iterrows():
         data = {field: clean_value(row.get(field)) for field in known_fields}
 
-        extras: Dict[str, str] = {}
+        extras: Dict[str, Any] = {}
         for column in row.index:
             if column in known_fields:
                 continue
             value = clean_value(row.get(column))
             if value is not None:
                 extras[column] = value
+
+        contact_keys = {"primary contact", "primary_contact", "editor", "editor name"}
+        contact_value = None
+        for key in list(extras.keys()):
+            if key.strip().lower() in contact_keys:
+                contact_value = extras.pop(key)
+                break
+        if contact_value:
+            contact_lookup = {}
+            existing_lookup = extras.get("contact_lookup")
+            if isinstance(existing_lookup, dict):
+                contact_lookup.update(existing_lookup)
+            contact_lookup["primary_contact"] = contact_value
+            extras["contact_lookup"] = contact_lookup
 
         data["extra_data"] = extras if extras else None
         yield data, extras

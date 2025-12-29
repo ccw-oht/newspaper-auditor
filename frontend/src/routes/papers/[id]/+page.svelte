@@ -445,6 +445,10 @@
               <span class="meta-label">CMS vendor</span>
               <span class="meta-value">{currentAudit.cms_vendor ?? '—'}</span>
             </div>
+            <div>
+              <span class="meta-label">Frequency</span>
+              <span class="meta-value">{paper.publication_frequency ?? '—'}</span>
+            </div>
           </div>
 
           <div class="status-grid">
