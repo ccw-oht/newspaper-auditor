@@ -12,3 +12,4 @@ audits/
 test-csv/
 utils/
 list-building/
+.env

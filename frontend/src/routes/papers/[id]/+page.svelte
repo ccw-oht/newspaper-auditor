@@ -22,6 +22,7 @@
   let currentAudit: (PaperDetail['audits'][number] & { overrides?: Record<string, string | null | undefined> | null }) | (AuditSummary & { overrides?: Record<string, string | null | undefined> | null }) | null = paper.latest_audit ?? selectedAudit;
   let filterQuery = '';
   let lookupInfo: Record<string, unknown> | null = null;
+  let primaryContact = '';
 
   $: selectedAudit = paper.audits.find((audit) => audit.id === selectedAuditId) ?? paper.audits[0] ?? null;
 
@@ -35,6 +36,7 @@
   $: lookupInfo = (paper.extra_data?.contact_lookup as Record<string, unknown> | undefined) ?? null;
 
   let form = buildFormValues(paper);
+  setPrimaryContactFromPaper();
 
   const summaryFields: { key: keyof PaperDetail['audits'][number]; label: string }[] = [
     { key: 'has_pdf', label: 'Has PDF' },
@@ -146,15 +148,29 @@
     };
   }
 
+  function setPrimaryContactFromPaper() {
+    const value = safeString((paper.extra_data?.contact_lookup as Record<string, unknown> | undefined)?.primary_contact);
+    primaryContact = value ?? '';
+  }
+
   async function save() {
     try {
       saving = true;
       const payload = Object.fromEntries(
         Object.entries(form).map(([key, value]) => [key, value.trim() ? value.trim() : null])
       );
+      const primaryContactValue = primaryContact.trim();
+      if (primaryContactValue) {
+        const lookupPayload = {
+          ...(lookupInfo ?? {}),
+          primary_contact: primaryContactValue
+        };
+        payload.extra_data = { contact_lookup: lookupPayload };
+      }
       const updated = await updatePaper(paper.id, payload);
       paper = updated;
       form = buildFormValues(paper);
+      setPrimaryContactFromPaper();
       overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
       await invalidateAll();
     } catch (error) {
@@ -172,6 +188,7 @@
       await invalidateAll();
       paper = await fetchPaperDetail(paper.id);
       form = buildFormValues(paper);
+      setPrimaryContactFromPaper();
       selectedAuditId = paper.latest_audit?.id ?? selectedAuditId;
       overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
       await tick();
@@ -195,6 +212,7 @@
       await invalidateAll();
       paper = await fetchPaperDetail(paper.id);
       form = buildFormValues(paper);
+      setPrimaryContactFromPaper();
       selectedAuditId = paper.latest_audit?.id ?? null;
       overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
     } catch (error) {
@@ -214,6 +232,7 @@
       await invalidateAll();
       paper = await fetchPaperDetail(paper.id);
       form = buildFormValues(paper);
+      setPrimaryContactFromPaper();
     } catch (error) {
       console.error(error);
       lookupError = error instanceof Error ? error.message : 'Failed to run lookup';
@@ -296,6 +315,7 @@
       overrideSaving = false;
     }
   }
+
 </script>
 
 <section class="detail">
@@ -351,7 +371,7 @@
         </label>
         <label>
           Primary Contact
-          <input value={safeString(lookupInfo?.primary_contact) ?? ''} placeholder="From lookup" readonly />
+          <input bind:value={primaryContact} placeholder="Add primary contact" />
         </label>
         <label>
           Email
