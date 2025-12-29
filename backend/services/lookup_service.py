@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 from sqlalchemy.orm import Session
 
 from .. import schemas
@@ -29,6 +29,62 @@ class NewsContact(BaseModel):
     primary_contact: Optional[str] = None
     wikipedia_link: Optional[str] = None
     source_links: List[str] = []
+
+    @field_validator("primary_contact", mode="before")
+    @classmethod
+    def _coerce_primary_contact(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            pieces: list[str] = []
+            for item in value.values():
+                if isinstance(item, str) and item.strip():
+                    pieces.append(item.strip())
+                elif item is not None:
+                    pieces.append(str(item).strip())
+            joined = ", ".join([piece for piece in pieces if piece])
+            return joined or None
+        if isinstance(value, list):
+            pieces = [str(item).strip() for item in value if str(item).strip()]
+            joined = ", ".join(pieces)
+            return joined or None
+        return str(value).strip() or None
+
+    @field_validator("name", "email", "phone", "mailing_address", "website", "wikipedia_link", mode="before")
+    @classmethod
+    def _coerce_text_fields(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            pieces: list[str] = []
+            for item in value.values():
+                if isinstance(item, str) and item.strip():
+                    pieces.append(item.strip())
+                elif item is not None:
+                    pieces.append(str(item).strip())
+            joined = ", ".join([piece for piece in pieces if piece])
+            return joined or None
+        if isinstance(value, list):
+            pieces = [str(item).strip() for item in value if str(item).strip()]
+            joined = ", ".join(pieces)
+            return joined or None
+        return str(value).strip() or None
+
+    @field_validator("source_links", mode="before")
+    @classmethod
+    def _coerce_source_links(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            cleaned = value.strip()
+            return [cleaned] if cleaned else []
+        return [str(value).strip()] if str(value).strip() else []
 
 
 def _get_client():
@@ -70,6 +126,18 @@ def _normalize_links(values: List[str]) -> List[str]:
         seen.add(cleaned)
         normalized.append(cleaned)
     return normalized
+
+
+def _normalize_phone(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) == 10:
+        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    cleaned = value.strip()
+    return cleaned or None
 
 
 def _build_prompt(paper: Paper) -> str:
@@ -141,7 +209,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
 
     updates: Dict[str, Optional[str]] = {}
     if _is_missing(paper.phone) and contact.phone:
-        updates["phone"] = _clean_str(contact.phone)
+        updates["phone"] = _normalize_phone(contact.phone)
     if _is_missing(paper.email) and contact.email:
         updates["email"] = _clean_str(contact.email)
     if _is_missing(paper.mailing_address) and contact.mailing_address:
