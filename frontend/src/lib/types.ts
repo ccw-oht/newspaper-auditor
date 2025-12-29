@@ -34,6 +34,7 @@ export interface PaperSummary {
   paper_name: string | null;
   website_url: string | null;
   phone: string | null;
+  email: string | null;
   mailing_address: string | null;
   county: string | null;
   chain_owner: string | null;
@@ -57,6 +58,7 @@ export interface PaperDetail {
   paper_name: string | null;
   website_url: string | null;
   phone: string | null;
+  email: string | null;
   mailing_address: string | null;
   county: string | null;
   chain_owner: string | null;
@@ -74,6 +76,7 @@ export interface PaperUpdatePayload {
   paper_name?: string | null;
   website_url?: string | null;
   phone?: string | null;
+  email?: string | null;
   mailing_address?: string | null;
   county?: string | null;
   chain_owner?: string | null;
@@ -114,6 +117,16 @@ export interface FilterValues {
   cms_vendor?: string;
   q?: string;
   limit?: number;
+}
+
+export interface LookupResult {
+  paper_id: number;
+  updated: boolean;
+  phone: string | null;
+  email: string | null;
+  mailing_address: string | null;
+  lookup_metadata: Record<string, unknown> | null;
+  error: string | null;
 }
 
 export interface PaperListOptions {

@@ -2,7 +2,7 @@
   /* eslint-env browser */
   import { goto, invalidateAll } from '$app/navigation';
   import { tick } from 'svelte';
-  import { runAudit, updatePaper, fetchPaperDetail, clearAuditResults } from '$lib/api';
+  import { runAudit, runLookup, updatePaper, fetchPaperDetail, clearAuditResults } from '$lib/api';
   import type { PaperDetail, AuditSummary } from '$lib/types';
   import { formatRelativeTime } from '$lib/formatters';
   import { paperFilterQuery } from '$lib/stores/paperFilters';
@@ -12,6 +12,8 @@
   let paper = data.detail;
   let saving = false;
   let auditing = false;
+  let lookingUp = false;
+  let lookupError: string | null = null;
   let clearing = false;
   let overrideSaving = false;
   let overrideError: string | null = null;
@@ -19,6 +21,7 @@
   let selectedAudit: PaperDetail['audits'][number] | null = paper.audits[0] ?? null;
   let currentAudit: (PaperDetail['audits'][number] & { overrides?: Record<string, string | null | undefined> | null }) | (AuditSummary & { overrides?: Record<string, string | null | undefined> | null }) | null = paper.latest_audit ?? selectedAudit;
   let filterQuery = '';
+  let lookupInfo: Record<string, unknown> | null = null;
 
   $: selectedAudit = paper.audits.find((audit) => audit.id === selectedAuditId) ?? paper.audits[0] ?? null;
 
@@ -29,6 +32,7 @@
     return selectedAudit ?? paper.latest_audit ?? null;
   })();
   $: filterQuery = $paperFilterQuery;
+  $: lookupInfo = (paper.extra_data?.contact_lookup as Record<string, unknown> | undefined) ?? null;
 
   let form = buildFormValues(paper);
 
@@ -136,6 +140,7 @@
       paper_name: current.paper_name ?? '',
       website_url: current.website_url ?? '',
       phone: current.phone ?? '',
+      email: current.email ?? '',
       mailing_address: current.mailing_address ?? '',
       county: current.county ?? ''
     };
@@ -200,6 +205,23 @@
     }
   }
 
+  async function runLookupForPaper() {
+    if (lookingUp) return;
+    lookupError = null;
+    try {
+      lookingUp = true;
+      await runLookup(paper.id);
+      await invalidateAll();
+      paper = await fetchPaperDetail(paper.id);
+      form = buildFormValues(paper);
+    } catch (error) {
+      console.error(error);
+      lookupError = error instanceof Error ? error.message : 'Failed to run lookup';
+    } finally {
+      lookingUp = false;
+    }
+  }
+
   function viewAudit(id: number) {
     selectedAuditId = id;
   }
@@ -223,6 +245,19 @@
       return trimmed;
     }
     return `https://${trimmed.replace(/^\/+/, '')}`;
+  }
+
+  function safeString(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  function lookupLinks(): string[] {
+    if (!lookupInfo) return [];
+    const sources = lookupInfo.source_links;
+    if (!Array.isArray(sources)) return [];
+    return sources.filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim());
   }
 
   async function saveOverrides() {
@@ -276,6 +311,14 @@
       <button class="audit" type="button" disabled={auditing} on:click={rerunAudit}>
         {auditing ? 'Running…' : 'Re-run audit'}
       </button>
+      <button
+        class={`audit secondary${lookupInfo ? ' lookup-done' : ''}`}
+        type="button"
+        disabled={lookingUp}
+        on:click={runLookupForPaper}
+      >
+        {lookingUp ? 'Looking…' : 'Run lookup'}
+      </button>
       <button class="audit secondary" type="button" disabled={clearing} on:click={clearAudit}>
         {clearing ? 'Clearing…' : 'Clear audit data'}
       </button>
@@ -307,6 +350,14 @@
           <input bind:value={form.phone} />
         </label>
         <label>
+          Primary Contact
+          <input value={safeString(lookupInfo?.primary_contact) ?? ''} placeholder="From lookup" readonly />
+        </label>
+        <label>
+          Email
+          <input bind:value={form.email} />
+        </label>
+        <label>
           Mailing address
           <textarea rows="3" bind:value={form.mailing_address} />
         </label>
@@ -316,6 +367,41 @@
         </label>
         <button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
       </form>
+
+      <div class="panel lookup">
+        <h3>Lookup sources</h3>
+        {#if lookupInfo}
+          <p class="meta">
+            <strong>Last lookup:</strong>
+            {safeString(lookupInfo.last_lookup_at) ?? 'Unknown'}
+          </p>
+          {#if safeString(lookupInfo.primary_contact)}
+            <p class="meta">
+              <strong>Primary Contact:</strong>
+              {safeString(lookupInfo.primary_contact)}
+            </p>
+          {/if}
+          {#if safeString(lookupInfo.wikipedia_link)}
+            <a class="link" href={safeString(lookupInfo.wikipedia_link) ?? undefined} target="_blank" rel="noreferrer">
+              Wikipedia
+            </a>
+          {/if}
+          {#if lookupLinks().length > 0}
+            <div class="links">
+              {#each lookupLinks() as link}
+                <a href={link} target="_blank" rel="noreferrer">{link}</a>
+              {/each}
+            </div>
+          {:else}
+            <p class="empty">No source links captured.</p>
+          {/if}
+        {:else}
+          <p class="empty">No lookup run yet.</p>
+        {/if}
+        {#if lookupError}
+          <p class="error">{lookupError}</p>
+        {/if}
+      </div>
 
       <div class="panel history">
         <h3>Audit history</h3>
@@ -506,6 +592,12 @@
     border: 1px solid #d1d5db;
   }
 
+  .audit.secondary.lookup-done {
+    background-color: #16a34a;
+    border-color: #15803d;
+    color: #ffffff;
+  }
+
   .audit.secondary[disabled] {
     color: #9ca3af;
   }
@@ -530,6 +622,31 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+  }
+
+  .panel.lookup .meta {
+    margin: 0;
+    color: #374151;
+    font-size: 0.9rem;
+  }
+
+  .panel.lookup .link {
+    color: #2563eb;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .panel.lookup .links {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .panel.lookup .links a {
+    color: #2563eb;
+    font-size: 0.85rem;
+    text-decoration: none;
+    word-break: break-word;
   }
 
   form.panel label {

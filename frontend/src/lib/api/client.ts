@@ -4,6 +4,7 @@ import type {
   PaperDetail,
   PaperUpdatePayload,
   AuditOut,
+  LookupResult,
   ImportPreviewResponse,
   ImportCommitRequest,
   ImportCommitResult,
@@ -92,6 +93,18 @@ export async function runAudit(id: number, fetchImpl?: FetchLike): Promise<Audit
 
 export async function runAuditBatch(ids: number[], fetchImpl?: FetchLike): Promise<AuditOut[]> {
   return request<AuditOut[]>(`/audits/batch`, {
+    fetchImpl,
+    method: HttpMethod.POST,
+    body: JSON.stringify({ ids })
+  });
+}
+
+export async function runLookup(id: number, fetchImpl?: FetchLike): Promise<LookupResult> {
+  return request<LookupResult>(`/lookup/${id}`, { fetchImpl, method: HttpMethod.POST });
+}
+
+export async function runLookupBatch(ids: number[], fetchImpl?: FetchLike): Promise<LookupResult[]> {
+  return request<LookupResult[]>(`/lookup/batch`, {
     fetchImpl,
     method: HttpMethod.POST,
     body: JSON.stringify({ ids })

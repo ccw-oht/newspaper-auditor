@@ -1,4 +1,4 @@
-.PHONY: help dev-backend dev-frontend compose-up compose-down compose-down-clean ingest install frontend-install
+.PHONY: help dev-backend dev-frontend compose-up compose-down compose-down-clean ingest install frontend-install migrate-email db-shell
 
 help:
 	@echo "Available targets:"
@@ -6,6 +6,8 @@ help:
 	@echo "  dev-frontend - Run frontend dev server (SvelteKit)"
 	@echo "  compose-up   - Start Postgres via docker compose"
 	@echo "  compose-down - Stop Postgres and remove containers"
+	@echo "  migrate-email - Add the email column to papers"
+	@echo "  db-shell     - Open a psql shell in the Postgres container"
 	@echo "  ingest       - Example: make ingest CSV=path/to/file.csv"
 
 DATABASE_URL ?= postgresql://audit_user:audit_pass@localhost:55432/auditdb
@@ -53,3 +55,9 @@ ingest: install
 		exit 1; \
 	fi
 	. $(VENV)/bin/activate && $(PYTHON) -m backend.load_papers $(CSV) $(OPTS)
+
+migrate-email: install
+	. $(VENV)/bin/activate && $(PYTHON) -m backend.migrations.add_paper_email
+
+db-shell:
+	cd docker && docker compose exec db psql -U audit_user -d auditdb

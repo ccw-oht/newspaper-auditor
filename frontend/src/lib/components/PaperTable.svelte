@@ -21,6 +21,7 @@ let endEntry = 0;
 
 const dispatch = createEventDispatcher<{
     audit: { id: number };
+    lookup: { id: number };
     paginate: { offset: number };
     select: { id: number; checked: boolean };
     selectRange: { ids: number[]; checked: boolean };
@@ -38,6 +39,7 @@ $: endEntry = total === 0 ? 0 : Math.min(offset + safeLimit, total);
   let selectedSet = new Set<number>();
   let lastToggledIndex: number | null = null;
   let itemsFingerprint: string | null = null;
+  let expandedIds = new Set<number>();
 
   $: selectedSet = new Set(selected);
   $: allVisibleSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
@@ -82,6 +84,11 @@ function goToLast() {
       itemsFingerprint = currentFingerprint;
       lastToggledIndex = null;
     }
+  }
+
+  $: {
+    const visibleIds = new Set(items.map((item) => item.id));
+    expandedIds = new Set(Array.from(expandedIds).filter((id) => visibleIds.has(id)));
   }
 
   function handleItemClick(event: MouseEvent, id: number, index: number) {
@@ -139,6 +146,46 @@ function goToLast() {
     const overrides = summary?.overrides as Record<string, unknown> | undefined;
     if (!overrides) return false;
     return overrides[field] !== undefined;
+  }
+
+  function auditFieldValue(summary: AuditSummary | null | undefined, field: string): string | null | undefined {
+    if (!summary) return null;
+    const record = summary as Record<string, string | null | undefined>;
+    return record[field];
+  }
+
+  function hasLookup(item: PaperSummary): boolean {
+    const extra = item.extra_data as Record<string, unknown> | null | undefined;
+    if (!extra) return false;
+    const lookup = extra.contact_lookup as Record<string, unknown> | undefined;
+    return !!lookup;
+  }
+
+  function primaryContact(item: PaperSummary): string | null {
+    const extra = item.extra_data as Record<string, unknown> | null | undefined;
+    const lookup = extra?.contact_lookup as Record<string, unknown> | undefined;
+    const value = lookup?.primary_contact;
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  const detailFields = [
+    { key: 'has_pdf', label: 'Has PDF' },
+    { key: 'pdf_only', label: 'PDF Only' },
+    { key: 'paywall', label: 'Paywall' },
+    { key: 'notices', label: 'Notices' },
+    { key: 'responsive', label: 'Responsive' }
+  ];
+
+  function toggleDetails(id: number) {
+    const next = new Set(expandedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    expandedIds = next;
   }
 </script>
 
@@ -201,94 +248,6 @@ function goToLast() {
         </th>
         <th
           class="sortable"
-          aria-sort={columnAriaSort('has_pdf')}
-        >
-          <button type="button" on:click={() => toggleSort('has_pdf')}>
-            Has PDF
-            {#if sortField === 'has_pdf'}
-              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
-            {/if}
-          </button>
-        </th>
-        <th
-          class="sortable"
-          aria-sort={columnAriaSort('pdf_only')}
-        >
-          <button type="button" on:click={() => toggleSort('pdf_only')}>
-            PDF Only
-            {#if sortField === 'pdf_only'}
-              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
-            {/if}
-          </button>
-        </th>
-        <th
-          class="sortable"
-          aria-sort={columnAriaSort('paywall')}
-        >
-          <button type="button" on:click={() => toggleSort('paywall')}>
-            Paywall
-            {#if sortField === 'paywall'}
-              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
-            {/if}
-          </button>
-        </th>
-        <th
-          class="sortable"
-          aria-sort={columnAriaSort('notices')}
-        >
-          <button type="button" on:click={() => toggleSort('notices')}>
-            Notices
-            {#if sortField === 'notices'}
-              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
-            {/if}
-          </button>
-        </th>
-        <th
-          class="sortable"
-          aria-sort={columnAriaSort('responsive')}
-        >
-          <button type="button" on:click={() => toggleSort('responsive')}>
-            Responsive
-            {#if sortField === 'responsive'}
-              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
-            {/if}
-          </button>
-        </th>
-        <th
-          class="sortable"
-          aria-sort={columnAriaSort('chain_owner')}
-        >
-          <button type="button" on:click={() => toggleSort('chain_owner')}>
-            Chain
-            {#if sortField === 'chain_owner'}
-              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
-            {/if}
-          </button>
-        </th>
-        <th
-          class="sortable"
-          aria-sort={columnAriaSort('cms_platform')}
-        >
-          <button type="button" on:click={() => toggleSort('cms_platform')}>
-            CMS Platform
-            {#if sortField === 'cms_platform'}
-              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
-            {/if}
-          </button>
-        </th>
-        <th
-          class="sortable"
-          aria-sort={columnAriaSort('cms_vendor')}
-        >
-          <button type="button" on:click={() => toggleSort('cms_vendor')}>
-            CMS Vendor
-            {#if sortField === 'cms_vendor'}
-              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
-            {/if}
-          </button>
-        </th>
-        <th
-          class="sortable"
           aria-sort={columnAriaSort('timestamp')}
         >
           <button type="button" on:click={() => toggleSort('timestamp')}>
@@ -298,17 +257,17 @@ function goToLast() {
             {/if}
           </button>
         </th>
-        <th></th>
+        <th class="actions">Actions</th>
       </tr>
     </thead>
     <tbody>
       {#if items.length === 0}
         <tr>
-          <td colspan="15" class="empty">No results</td>
+          <td colspan="7" class="empty">No results</td>
         </tr>
       {:else}
         {#each items as item, index}
-          <tr>
+          <tr class:expanded={expandedIds.has(item.id)}>
             <td class="select">
               <input
                 type="checkbox"
@@ -336,41 +295,62 @@ function goToLast() {
                 —
               {/if}
             </td>
-            <td>
-              <span class={`status-pill ${statusClass('has_pdf', item.latest_audit?.has_pdf)}${isOverridden(item.latest_audit, 'has_pdf') ? ' overridden' : ''}`}>
-                {item.latest_audit?.has_pdf ?? '—'}
-              </span>
-            </td>
-            <td>
-              <span class={`status-pill ${statusClass('pdf_only', item.latest_audit?.pdf_only)}${isOverridden(item.latest_audit, 'pdf_only') ? ' overridden' : ''}`}>
-                {item.latest_audit?.pdf_only ?? '—'}
-              </span>
-            </td>
-            <td>
-              <span class={`status-pill ${statusClass('paywall', item.latest_audit?.paywall)}${isOverridden(item.latest_audit, 'paywall') ? ' overridden' : ''}`}>
-                {item.latest_audit?.paywall ?? '—'}
-              </span>
-            </td>
-            <td>
-              <span class={`status-pill ${statusClass('notices', item.latest_audit?.notices)}${isOverridden(item.latest_audit, 'notices') ? ' overridden' : ''}`}>
-                {item.latest_audit?.notices ?? '—'}
-              </span>
-            </td>
-            <td>
-              <span class={`status-pill ${statusClass('responsive', item.latest_audit?.responsive)}${isOverridden(item.latest_audit, 'responsive') ? ' overridden' : ''}`}>
-                {item.latest_audit?.responsive ?? '—'}
-              </span>
-            </td>
-            <td>{item.latest_audit?.chain_owner ?? '—'}</td>
-            <td>{item.latest_audit?.cms_platform ?? '—'}</td>
-            <td>{item.latest_audit?.cms_vendor ?? '—'}</td>
             <td>{item.latest_audit?.timestamp ? formatRelativeTime(item.latest_audit.timestamp) : 'Never'}</td>
-            <td>
-              <button type="button" disabled={loading} on:click={() => dispatch('audit', { id: item.id })}>
-                Re-run
-              </button>
+            <td class="actions">
+              <div class="action-buttons">
+                <button type="button" disabled={loading} on:click={() => dispatch('audit', { id: item.id })}>
+                  Audit
+                </button>
+                <button
+                  type="button"
+                  class={`secondary${hasLookup(item) ? ' lookup-done' : ''}`}
+                  disabled={loading}
+                  on:click={() => dispatch('lookup', { id: item.id })}
+                >
+                  Lookup
+                </button>
+                <button
+                  type="button"
+                  class="secondary"
+                  on:click={() => toggleDetails(item.id)}
+                  aria-expanded={expandedIds.has(item.id)}
+                >
+                  {expandedIds.has(item.id) ? 'Hide' : 'Details'}
+                </button>
+              </div>
             </td>
           </tr>
+          {#if expandedIds.has(item.id)}
+            <tr class="detail-row">
+              <td colspan="7">
+                <div class="detail-grid">
+                  <div class="detail-block">
+                    <h4>Audit</h4>
+                    <div class="pill-row">
+                      {#each detailFields as field}
+                        <div class={`detail-pill ${statusClass(field.key, auditFieldValue(item.latest_audit, field.key))}${isOverridden(item.latest_audit, field.key) ? ' overridden' : ''}`}>
+                          <span class="pill-label">{field.label}</span>
+                          <span class="pill-value">{auditFieldValue(item.latest_audit, field.key) ?? '—'}</span>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                  <div class="detail-block">
+                    <h4>Platform</h4>
+                    <div class="detail-line"><span>Chain:</span> {item.chain_owner ?? '—'}</div>
+                    <div class="detail-line"><span>CMS platform:</span> {item.cms_platform ?? '—'}</div>
+                    <div class="detail-line"><span>CMS vendor:</span> {item.cms_vendor ?? '—'}</div>
+                  </div>
+                  <div class="detail-block">
+                    <h4>Contact</h4>
+                    <div class="detail-line"><span>Primary contact:</span> {primaryContact(item) ?? '—'}</div>
+                    <div class="detail-line"><span>Phone:</span> {item.phone ?? '—'}</div>
+                    <div class="detail-line"><span>Email:</span> {item.email ?? '—'}</div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          {/if}
         {/each}
       {/if}
     </tbody>
@@ -480,6 +460,11 @@ function goToLast() {
     text-align: center;
   }
 
+  th.actions,
+  td.actions {
+    width: 18rem;
+  }
+
   a.paper-link {
     color: #111827;
     font-weight: 600;
@@ -488,51 +473,6 @@ function goToLast() {
 
   a.external {
     color: #2563eb;
-  }
-
-  .status-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.15rem 0.5rem;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    border: 1px solid #e5e7eb;
-    background: #f3f4f6;
-    color: #374151;
-    min-width: 3.25rem;
-    text-transform: uppercase;
-  }
-
-  .status-pill.overridden {
-    border-color: rgba(59, 130, 246, 0.35);
-    background: rgba(219, 234, 254, 0.85);
-    color: #1d4ed8;
-  }
-
-  .status-pill.status.yes {
-    border-color: rgba(22, 163, 74, 0.25);
-    background: rgba(220, 252, 231, 0.85);
-    color: #166534;
-  }
-
-  .status-pill.status.no {
-    border-color: rgba(239, 68, 68, 0.25);
-    background: rgba(254, 226, 226, 0.85);
-    color: #b91c1c;
-  }
-
-  .status-pill.status.review {
-    border-color: rgba(245, 158, 11, 0.25);
-    background: rgba(254, 243, 199, 0.85);
-    color: #b45309;
-  }
-
-  .status-pill.status.neutral {
-    border-color: #e5e7eb;
-    background: #f3f4f6;
-    color: #374151;
   }
 
   button {
@@ -548,6 +488,110 @@ function goToLast() {
   button[disabled] {
     opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  button.secondary {
+    background-color: #f3f4f6;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+  }
+
+  button.lookup-done {
+    background-color: #16a34a;
+    border-color: #15803d;
+    color: #ffffff;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .detail-row td {
+    background: #f9fafb;
+    padding: 0;
+  }
+
+  .detail-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    padding: 1rem 1.25rem;
+  }
+
+  .detail-block h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.9rem;
+    color: #111827;
+  }
+
+  .detail-line {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: #374151;
+  }
+
+  .detail-line span {
+    font-weight: 600;
+    color: #111827;
+  }
+
+  .pill-row {
+    display: grid;
+    gap: 0.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+
+  .detail-pill {
+    border-radius: 0.75rem;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    box-shadow: inset 0 0 0 1px #e5e7eb;
+    background: #ffffff;
+  }
+
+  .detail-pill.overridden {
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.35);
+  }
+
+  .detail-pill.status.yes {
+    box-shadow: inset 0 0 0 1px rgba(22, 163, 74, 0.25);
+    background: rgba(220, 252, 231, 0.85);
+    color: #166534;
+  }
+
+  .detail-pill.status.no {
+    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.25);
+    background: rgba(254, 226, 226, 0.85);
+    color: #b91c1c;
+  }
+
+  .detail-pill.status.review {
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.25);
+    background: rgba(254, 243, 199, 0.85);
+    color: #b45309;
+  }
+
+  .detail-pill.status.neutral {
+    box-shadow: inset 0 0 0 1px #e5e7eb;
+    background: #f3f4f6;
+    color: #374151;
+  }
+
+  .pill-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .pill-value {
+    font-weight: 700;
+    font-size: 0.9rem;
   }
 
   .empty {

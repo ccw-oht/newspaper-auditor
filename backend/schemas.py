@@ -32,6 +32,7 @@ class PaperOut(BaseModel):
     paper_name: Optional[str] = None
     website_url: Optional[str] = None
     phone: Optional[str] = None
+    email: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
     chain_owner: Optional[str] = None
@@ -47,6 +48,20 @@ class PaperOut(BaseModel):
 
 class AuditBatchRequest(BaseModel):
     ids: List[int] = Field(..., description="Paper IDs to audit")
+
+
+class LookupBatchRequest(BaseModel):
+    ids: List[int] = Field(..., description="Paper IDs to lookup")
+
+
+class LookupResult(BaseModel):
+    paper_id: int
+    updated: bool
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    mailing_address: Optional[str] = None
+    lookup_metadata: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
 
 
 class AuditSummary(BaseModel):
@@ -73,6 +88,7 @@ class PaperSummary(BaseModel):
     paper_name: Optional[str] = None
     website_url: Optional[str] = None
     phone: Optional[str] = None
+    email: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
     chain_owner: Optional[str] = None
@@ -109,6 +125,7 @@ class PaperDetail(BaseModel):
     paper_name: Optional[str] = None
     website_url: Optional[str] = None
     phone: Optional[str] = None
+    email: Optional[str] = None
     mailing_address: Optional[str] = None
     county: Optional[str] = None
     chain_owner: Optional[str] = None
@@ -125,6 +142,7 @@ class PaperUpdate(BaseModel):
     paper_name: Optional[str] = Field(default=None)
     website_url: Optional[str] = Field(default=None)
     phone: Optional[str] = Field(default=None)
+    email: Optional[str] = Field(default=None)
     mailing_address: Optional[str] = Field(default=None)
     county: Optional[str] = Field(default=None)
     chain_owner: Optional[str] = Field(default=None)

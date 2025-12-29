@@ -22,6 +22,7 @@ class Paper(Base):
     paper_name = Column(String, nullable=False)
     website_url = Column(String, index=True)
     phone = Column(String)
+    email = Column(String)
     mailing_address = Column(String)
     county = Column(String)
     chain_owner = Column(String)

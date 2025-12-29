@@ -20,6 +20,12 @@ export DATABASE_URL=postgresql://audit_user:audit_pass@localhost:55432/auditdb
 
 Inside the API container (and the FastAPI codebase) the default `postgresql://audit_user:audit_pass@db:5432/auditdb` is used automatically.
 
+The lookup feature uses Gemini and requires an API key:
+
+```bash
+export GEMINI_API_KEY=your_key_here
+```
+
 ## Running the Stack
 Only Postgres runs in Docker; the FastAPI backend runs locally with hot reload.
 
@@ -38,6 +44,12 @@ Only Postgres runs in Docker; the FastAPI backend runs locally with hot reload.
   ```
 
 Postgres is exposed on `localhost:55432`.
+
+To open a psql shell:
+
+```bash
+make db-shell
+```
 
 ### Backend Dev Server (hot reload)
 1. Ensure the virtual environment and dependencies are installed (handled automatically the first time you run the target).
@@ -158,6 +170,16 @@ With Postgres running (`make compose-up`) and the dev server active (`make dev-b
        -H "Content-Type: application/json" \
        -d '{"ids": [1, 2, 3]}'
   ```
+- Single lookup trigger:
+  ```bash
+  curl -X POST http://localhost:8000/lookup/1
+  ```
+- Batch lookup trigger:
+  ```bash
+  curl -X POST http://localhost:8000/lookup/batch \
+       -H "Content-Type: application/json" \
+       -d '{"ids": [1, 2, 3]}'
+  ```
 
 Responses are serialized via Pydantic schemas (`backend/schemas.py`) and include any `extra_data` captured during ingest.
 
@@ -176,6 +198,11 @@ Responses are serialized via Pydantic schemas (`backend/schemas.py`) and include
   ALTER TABLE papers ADD COLUMN chain_owner TEXT;
   ALTER TABLE papers ADD COLUMN cms_platform TEXT;
   ALTER TABLE papers ADD COLUMN cms_vendor TEXT;
+  ```
+
+- **Add email column (Lookup feature)**:
+  ```bash
+  make migrate-email
   ```
 
 - **View audit history for a paper**:

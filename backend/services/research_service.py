@@ -40,6 +40,7 @@ def _snapshot_from_paper(paper: Paper) -> Dict[str, Any]:
         "paper_name": paper.paper_name,
         "website_url": paper.website_url,
         "phone": paper.phone,
+        "email": paper.email,
         "mailing_address": paper.mailing_address,
         "county": paper.county,
         "chain_owner": paper.chain_owner,

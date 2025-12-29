@@ -3,7 +3,7 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { runAudit, fetchPaperIds, exportPapers, deletePapers, createResearchSession } from '$lib/api';
+  import { runAudit, runLookup, fetchPaperIds, exportPapers, deletePapers, createResearchSession } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
   import { browser } from '$app/environment';
@@ -20,6 +20,10 @@
   }
 
   let loading = false;
+  let lookupLoading = false;
+  let lookupProgressCurrent = 0;
+  let lookupProgressTotal = 0;
+  let lookupError: string | null = null;
   let selectedIds: Set<number> = new Set();
   let pageSize = Number(data.params.limit ?? 50);
   let progressCurrent = 0;
@@ -107,6 +111,19 @@
       window.alert('Failed to re-run audit. Check console for details.');
     } finally {
       loading = false;
+    }
+  }
+
+  async function handleLookup(event: CustomEvent<{ id: number }>) {
+    try {
+      lookupLoading = true;
+      await runLookup(event.detail.id);
+      await invalidateAll();
+    } catch (error) {
+      console.error(error);
+      window.alert('Failed to run lookup. Check console for details.');
+    } finally {
+      lookupLoading = false;
     }
   }
 
@@ -204,6 +221,45 @@
       loading = false;
       progressCurrent = 0;
       progressTotal = 0;
+    }
+  }
+
+  async function handleBatchLookup() {
+    if (selectedIds.size === 0) {
+      return;
+    }
+
+    try {
+      lookupLoading = true;
+      lookupProgressTotal = selectedArray.length;
+      lookupProgressCurrent = 0;
+      lookupError = null;
+
+      for (const id of selectedArray) {
+        try {
+          await runLookup(id);
+        } catch (error) {
+          console.error(error);
+          window.alert(`Failed to run lookup for paper ${id}. Continuing with remaining items.`);
+        }
+
+        lookupProgressCurrent += 1;
+        await invalidateAll();
+
+        const next = new Set(selectedIds);
+        next.delete(id);
+        selectedIds = next;
+        allSelectedAcross = false;
+        exportError = null;
+        deleteError = null;
+      }
+    } catch (error) {
+      console.error(error);
+      lookupError = error instanceof Error ? error.message : 'Failed to run batch lookup.';
+    } finally {
+      lookupLoading = false;
+      lookupProgressCurrent = 0;
+      lookupProgressTotal = 0;
     }
   }
 
@@ -435,6 +491,10 @@
     <p class="error">{deleteError}</p>
   {/if}
 
+  {#if lookupError}
+    <p class="error">{lookupError}</p>
+  {/if}
+
   <div class="actions">
     <label class="page-size">
       Entries per page
@@ -459,6 +519,11 @@
       {loading
         ? `Running…${progressTotal ? ` (${progressCurrent}/${progressTotal})` : ''}`
         : 'Re-run selected'}
+    </button>
+    <button type="button" on:click={handleBatchLookup} disabled={selectedCount === 0 || lookupLoading}>
+      {lookupLoading
+        ? `Lookup…${lookupProgressTotal ? ` (${lookupProgressCurrent}/${lookupProgressTotal})` : ''}`
+        : 'Lookup selected'}
     </button>
     <button type="button" on:click={handleExport} disabled={selectedCount === 0 || exportLoading}>
       {exportLoading ? 'Exporting…' : 'Export CSV'}
@@ -556,6 +621,7 @@
     limit={pageSize}
     offset={Number(data.params.offset ?? 0)}
     on:audit={handleAudit}
+    on:lookup={handleLookup}
     on:paginate={changePage}
     on:select={handleSelect}
     on:selectRange={handleSelectRange}
@@ -564,7 +630,7 @@
     selected={selectedArray}
     sortField={currentSortField}
     sortOrder={currentSortOrder}
-    {loading}
+    loading={loading || lookupLoading}
   />
 </div>
 
