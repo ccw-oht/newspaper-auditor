@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import asc, case, delete, desc, func, or_, select
+from sqlalchemy import String, asc, case, delete, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import schemas
@@ -32,14 +32,34 @@ def _normalize_filter(value: Optional[str]) -> Optional[str]:
     return cleaned if cleaned else None
 
 
-def _prioritized_value_expr(audit_column, paper_column, label: str):
+def _prioritized_value_expr(audit_column, paper_column, override_key: str, label: str):
+    """
+    Create a SQL expression that prioritizes: override > audit (non-manual-review) > paper > audit (any)
+    
+    Args:
+        audit_column: Column from audit table
+        paper_column: Column from paper table
+        override_key: Key in audit_overrides JSON field (e.g., 'chain_owner', 'cms_platform')
+        label: Label for the resulting expression
+    """
+    # Extract override value from JSON field using PostgreSQL JSON operator
+    # Paper.audit_overrides[override_key] returns the JSON value; .as_string() converts to text
+    # If key doesn't exist, returns NULL which coalesce will skip
+    override_expr = func.nullif(
+        func.trim(
+            func.cast(Paper.audit_overrides[override_key].as_string(), String)
+        ),
+        ""
+    )
+    
     audit_trimmed = func.nullif(func.trim(audit_column), "")
     paper_trimmed = func.nullif(func.trim(paper_column), "")
     audit_preferred = case(
         (func.lower(audit_trimmed).like("manual review%"), None),
         else_=audit_trimmed,
     )
-    return func.coalesce(audit_preferred, paper_trimmed, audit_trimmed).label(label)
+    # Priority: override > audit (non-manual-review) > paper > audit (any, including manual review)
+    return func.coalesce(override_expr, audit_preferred, paper_trimmed, audit_trimmed).label(label)
 
 
 AUDIT_OVERRIDE_FIELDS = {
@@ -177,9 +197,9 @@ def list_papers(
 
     latest = latest_audit_subq.alias("latest")
 
-    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner_value")
-    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform_value")
-    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor_value")
+    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner", "chain_owner_value")
+    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
+    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
 
     stmt = (
         select(Paper, latest, chain_owner_value, cms_platform_value, cms_vendor_value)
@@ -492,9 +512,9 @@ def list_paper_ids(
 
     latest = latest_audit_subq.alias("latest")
 
-    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner_value")
-    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform_value")
-    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor_value")
+    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner", "chain_owner_value")
+    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
+    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
 
     stmt = (
         select(Paper.id)
@@ -595,9 +615,9 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
 
     latest = latest_audit_subq.alias("latest")
 
-    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner_value")
-    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform_value")
-    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor_value")
+    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner", "chain_owner_value")
+    cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
+    cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
 
     stmt = (
         select(Paper, latest, chain_owner_value, cms_platform_value, cms_vendor_value)
