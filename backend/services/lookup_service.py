@@ -129,10 +129,13 @@ def _is_missing(value: Optional[str]) -> bool:
 def _normalize_links(values: List[str]) -> List[str]:
     normalized: List[str] = []
     seen: set[str] = set()
+    blocked_prefixes = ("https://vertexaisearch.cloud.google.com/grounding-api-redirect/",)
     for value in values:
         if not isinstance(value, str):
             continue
         cleaned = value.strip()
+        if any(cleaned.startswith(prefix) for prefix in blocked_prefixes):
+            continue
         if not cleaned or cleaned in seen:
             continue
         seen.add(cleaned)
@@ -248,6 +251,9 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "website": _clean_str(contact.website),
         "chain_owner": _clean_str(contact.chain_owner),
         "publication_frequency": _clean_str(contact.publication_frequency),
+        "phone": _normalize_phone(contact.phone) if contact.phone else None,
+        "email": _clean_str(contact.email),
+        "mailing_address": _clean_str(contact.mailing_address),
     }
 
     extra = dict(paper.extra_data or {})

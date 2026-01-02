@@ -3,7 +3,7 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { runAudit, runLookup, fetchPaperIds, exportPapers, deletePapers, createResearchSession } from '$lib/api';
+  import { runAudit, runLookup, runLookupBatch, fetchPaperIds, exportPapers, deletePapers, createResearchSession } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
   import { browser } from '$app/environment';
@@ -235,24 +235,36 @@
       lookupProgressCurrent = 0;
       lookupError = null;
 
-      for (const id of selectedArray) {
-        try {
-          await runLookup(id);
-        } catch (error) {
-          console.error(error);
-          window.alert(`Failed to run lookup for paper ${id}. Continuing with remaining items.`);
+      const batchSize = Math.max(1, Number(import.meta.env.PUBLIC_LOOKUP_BATCH_SIZE) || 10);
+      const failures: string[] = [];
+
+      for (let i = 0; i < selectedArray.length; i += batchSize) {
+        const batch = selectedArray.slice(i, i + batchSize);
+        const results = await runLookupBatch(batch);
+        for (const result of results) {
+          lookupProgressCurrent += 1;
+          if (result.error) {
+            failures.push(result.error);
+          }
+          await invalidateAll();
+
+          const next = new Set(selectedIds);
+          next.delete(result.paper_id);
+          selectedIds = next;
+          allSelectedAcross = false;
+          exportError = null;
+          deleteError = null;
         }
-
-        lookupProgressCurrent += 1;
-        await invalidateAll();
-
-        const next = new Set(selectedIds);
-        next.delete(id);
-        selectedIds = next;
-        allSelectedAcross = false;
-        exportError = null;
-        deleteError = null;
       }
+
+      if (failures.length > 0) {
+        lookupError = `${failures.length} lookup${failures.length === 1 ? '' : 's'} failed.`;
+      }
+
+      selectedIds = new Set();
+      allSelectedAcross = false;
+      exportError = null;
+      deleteError = null;
     } catch (error) {
       console.error(error);
       lookupError = error instanceof Error ? error.message : 'Failed to run batch lookup.';

@@ -397,12 +397,40 @@
             <strong>Last lookup:</strong>
             {safeString(lookupInfo.last_lookup_at) ?? 'Unknown'}
           </p>
-          {#if safeString(lookupInfo.primary_contact)}
-            <p class="meta">
-              <strong>Primary Contact:</strong>
-              {safeString(lookupInfo.primary_contact)}
-            </p>
-          {/if}
+          <dl class="lookup-list">
+            <div>
+              <dt>Contact name</dt>
+              <dd>{safeString(lookupInfo.contact_name) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Primary contact</dt>
+              <dd>{safeString(lookupInfo.primary_contact) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Website</dt>
+              <dd>{safeString(lookupInfo.website) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Chain owner</dt>
+              <dd>{safeString(lookupInfo.chain_owner) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Publication frequency</dt>
+              <dd>{safeString(lookupInfo.publication_frequency) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Phone</dt>
+              <dd>{safeString(lookupInfo.phone) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Email</dt>
+              <dd>{safeString(lookupInfo.email) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Mailing address</dt>
+              <dd>{safeString(lookupInfo.mailing_address) ?? '—'}</dd>
+            </div>
+          </dl>
           {#if safeString(lookupInfo.wikipedia_link)}
             <a class="link" href={safeString(lookupInfo.wikipedia_link) ?? undefined} target="_blank" rel="noreferrer">
               Wikipedia
@@ -669,6 +697,30 @@
     font-size: 0.85rem;
     text-decoration: none;
     word-break: break-word;
+  }
+
+  .lookup-list {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .lookup-list div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.85rem;
+    color: #374151;
+  }
+
+  .lookup-list dt {
+    font-weight: 600;
+    color: #111827;
+  }
+
+  .lookup-list dd {
+    margin: 0;
   }
 
   form.panel label {
