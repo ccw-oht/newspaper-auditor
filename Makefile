@@ -1,5 +1,8 @@
 .PHONY: help dev-backend dev-frontend compose-up compose-down compose-down-clean ingest install frontend-install migrate-email migrate-publication-frequency db-shell
 
+-include .env
+export
+
 help:
 	@echo "Available targets:"
 	@echo "  dev-backend  - Run FastAPI app with hot reload"
