@@ -517,8 +517,8 @@
     </button>
     <button type="button" on:click={handleBatchAudit} disabled={selectedCount === 0 || loading}>
       {loading
-        ? `Running…${progressTotal ? ` (${progressCurrent}/${progressTotal})` : ''}`
-        : 'Re-run selected'}
+        ? `Auditing…${progressTotal ? ` (${progressCurrent}/${progressTotal})` : ''}`
+        : 'Audit selected'}
     </button>
     <button type="button" on:click={handleBatchLookup} disabled={selectedCount === 0 || lookupLoading}>
       {lookupLoading
