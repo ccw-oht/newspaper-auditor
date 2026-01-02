@@ -231,15 +231,16 @@
 
     try {
       lookupLoading = true;
-      lookupProgressTotal = selectedArray.length;
+      const batchIds = [...selectedArray];
+      lookupProgressTotal = batchIds.length;
       lookupProgressCurrent = 0;
       lookupError = null;
 
       const batchSize = Math.max(1, Number(import.meta.env.PUBLIC_LOOKUP_BATCH_SIZE) || 10);
       const failures: string[] = [];
 
-      for (let i = 0; i < selectedArray.length; i += batchSize) {
-        const batch = selectedArray.slice(i, i + batchSize);
+      for (let i = 0; i < batchIds.length; i += batchSize) {
+        const batch = batchIds.slice(i, i + batchSize);
         const results = await runLookupBatch(batch);
         for (const result of results) {
           lookupProgressCurrent += 1;
