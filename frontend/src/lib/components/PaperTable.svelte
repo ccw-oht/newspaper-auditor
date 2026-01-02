@@ -41,6 +41,7 @@ $: endEntry = total === 0 ? 0 : Math.min(offset + safeLimit, total);
   let itemsFingerprint: string | null = null;
   let expandedIds = new Set<number>();
   let hoverExpandedId: number | null = null;
+  let hoverTimer: number | null = null;
 
   $: selectedSet = new Set(selected);
   $: allVisibleSelected = items.length > 0 && items.every((item) => selectedSet.has(item.id));
@@ -189,10 +190,20 @@ function goToLast() {
     expandedIds = next;
   }
   function showHoverDetails(id: number) {
-    hoverExpandedId = id;
+    if (hoverTimer !== null) {
+      clearTimeout(hoverTimer);
+    }
+    hoverTimer = window.setTimeout(() => {
+      hoverExpandedId = id;
+      hoverTimer = null;
+    }, 140);
   }
 
   function clearHoverDetails(id: number) {
+    if (hoverTimer !== null) {
+      clearTimeout(hoverTimer);
+      hoverTimer = null;
+    }
     if (hoverExpandedId === id) {
       hoverExpandedId = null;
     }
@@ -284,7 +295,9 @@ function goToLast() {
               />
             </td>
             <td class="paper-cell">
-              <a class="paper-link" href={`/papers/${item.id}`}>{item.paper_name ?? '—'}</a>
+              <a class="paper-link" href={`/papers/${item.id}`} title="Click for full details.">
+                {item.paper_name ?? '—'}
+              </a>
             </td>
             <td>{item.city ?? '—'}</td>
             <td>{item.state ?? '—'}</td>
@@ -330,13 +343,13 @@ function goToLast() {
                 </button>
                 <button
                   type="button"
-                  class="secondary"
+                  class="secondary detail-toggle"
                   on:click={() => toggleDetails(item.id)}
                   on:mouseenter={() => showHoverDetails(item.id)}
                   on:mouseleave={() => clearHoverDetails(item.id)}
                   aria-expanded={expandedIds.has(item.id) || hoverExpandedId === item.id}
                 >
-                  {expandedIds.has(item.id) ? 'Hide' : 'Details'}
+                  {expandedIds.has(item.id) ? 'Hide' : hoverExpandedId === item.id ? 'Pin' : 'More ▾'}
                 </button>
               </div>
             </td>
@@ -534,6 +547,13 @@ function goToLast() {
     background-color: #f3f4f6;
     color: #111827;
     border: 1px solid #e5e7eb;
+  }
+
+  button.detail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 4.5rem;
   }
 
   button.lookup-done {
