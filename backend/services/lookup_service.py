@@ -18,6 +18,7 @@ except ModuleNotFoundError:  # pragma: no cover - handled at runtime
     types = None
 
 _CLIENT = None
+_LOOKUP_DEBUG = os.getenv("LOOKUP_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class NewsContact(BaseModel):
@@ -27,6 +28,7 @@ class NewsContact(BaseModel):
     mailing_address: Optional[str] = None
     website: Optional[str] = None
     primary_contact: Optional[str] = None
+    chain_owner: Optional[str] = None
     publication_frequency: Optional[str] = None
     wikipedia_link: Optional[str] = None
     source_links: List[str] = []
@@ -53,7 +55,17 @@ class NewsContact(BaseModel):
             return joined or None
         return str(value).strip() or None
 
-    @field_validator("name", "email", "phone", "mailing_address", "website", "wikipedia_link", "publication_frequency", mode="before")
+    @field_validator(
+        "name",
+        "email",
+        "phone",
+        "mailing_address",
+        "website",
+        "wikipedia_link",
+        "publication_frequency",
+        "chain_owner",
+        mode="before",
+    )
     @classmethod
     def _coerce_text_fields(cls, value: Any) -> Optional[str]:
         if value is None:
@@ -155,8 +167,10 @@ def _build_prompt(paper: Paper) -> str:
     details = "\n".join(parts)
     return (
         "Find the official editorial contact info for the newspaper listed below. "
-        "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, publication_frequency, "
-        "wikipedia_link, source_links. Use null for unknown values.\n\n"
+        "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, chain_owner, publication_frequency, "
+        "wikipedia_link, source_links. Use null for unknown values. "
+        "For source_links, include only human-accessible public URLs (official site pages, press association listings, newsroom contact pages). "
+        "Do not include API endpoints, Vertex/Google AI links, or tool/integration URLs.\n\n"
         f"{details}"
     )
 
@@ -177,6 +191,8 @@ def _extract_response_text(response) -> str:
 def _fetch_contact(paper: Paper) -> NewsContact:
     client = _get_client()
     prompt = _build_prompt(paper)
+    if _LOOKUP_DEBUG:
+        print(f"Lookup prompt for paper_id={paper.id}:\n{prompt}")
     config = types.GenerateContentConfig(
         system_instruction=(
             "You are a specialized researcher for media databases. "
@@ -192,6 +208,8 @@ def _fetch_contact(paper: Paper) -> NewsContact:
         config=config,
     )
     raw_text = _extract_response_text(response)
+    if _LOOKUP_DEBUG:
+        print(f"Lookup raw response for paper_id={paper.id}:\n{raw_text}")
     try:
         return NewsContact.model_validate_json(raw_text)
     except ValidationError:
@@ -214,6 +232,9 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         updates["mailing_address"] = _clean_str(contact.mailing_address)
     if _is_missing(paper.publication_frequency) and contact.publication_frequency:
         updates["publication_frequency"] = _clean_str(contact.publication_frequency)
+    chain_owner_value = _clean_str(contact.chain_owner)
+    if chain_owner_value is not None:
+        updates["chain_owner"] = chain_owner_value
 
     for field, value in updates.items():
         setattr(paper, field, value)
@@ -225,6 +246,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "primary_contact": _clean_str(contact.primary_contact),
         "contact_name": _clean_str(contact.name),
         "website": _clean_str(contact.website),
+        "chain_owner": _clean_str(contact.chain_owner),
         "publication_frequency": _clean_str(contact.publication_frequency),
     }
 

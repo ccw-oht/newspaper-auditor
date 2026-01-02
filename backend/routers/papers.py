@@ -49,7 +49,7 @@ def _publication_frequency_value(paper: Paper) -> Optional[str]:
     return None
 
 
-def _prioritized_value_expr(audit_column, paper_column, override_key: str, label: str):
+def _prioritized_value_expr(audit_column, paper_column, override_key: str, label: str, *, prefer_paper: bool = False):
     """
     Create a SQL expression that prioritizes: override > audit (non-manual-review) > paper > audit (any)
     
@@ -75,6 +75,9 @@ def _prioritized_value_expr(audit_column, paper_column, override_key: str, label
         (func.lower(audit_trimmed).like("manual review%"), None),
         else_=audit_trimmed,
     )
+    if prefer_paper:
+        # Priority: override > paper > audit (non-manual-review) > audit (any, including manual review)
+        return func.coalesce(override_expr, paper_trimmed, audit_preferred, audit_trimmed).label(label)
     # Priority: override > audit (non-manual-review) > paper > audit (any, including manual review)
     return func.coalesce(override_expr, audit_preferred, paper_trimmed, audit_trimmed).label(label)
 
@@ -214,7 +217,13 @@ def list_papers(
 
     latest = latest_audit_subq.alias("latest")
 
-    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner", "chain_owner_value")
+    chain_owner_value = _prioritized_value_expr(
+        latest.c.chain_owner,
+        Paper.chain_owner,
+        "chain_owner",
+        "chain_owner_value",
+        prefer_paper=True,
+    )
     cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
     cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
 
@@ -533,7 +542,13 @@ def list_paper_ids(
 
     latest = latest_audit_subq.alias("latest")
 
-    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner", "chain_owner_value")
+    chain_owner_value = _prioritized_value_expr(
+        latest.c.chain_owner,
+        Paper.chain_owner,
+        "chain_owner",
+        "chain_owner_value",
+        prefer_paper=True,
+    )
     cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
     cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
 
@@ -638,7 +653,13 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
 
     latest = latest_audit_subq.alias("latest")
 
-    chain_owner_value = _prioritized_value_expr(latest.c.chain_owner, Paper.chain_owner, "chain_owner", "chain_owner_value")
+    chain_owner_value = _prioritized_value_expr(
+        latest.c.chain_owner,
+        Paper.chain_owner,
+        "chain_owner",
+        "chain_owner_value",
+        prefer_paper=True,
+    )
     cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
     cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
 
@@ -1012,7 +1033,7 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
     display_platform = paper.cms_platform
     display_vendor = paper.cms_vendor
     if latest_summary:
-        if latest_summary.chain_owner is not None:
+        if (display_chain is None or (isinstance(display_chain, str) and not display_chain.strip())) and latest_summary.chain_owner is not None:
             display_chain = latest_summary.chain_owner
         if latest_summary.cms_platform is not None:
             display_platform = latest_summary.cms_platform

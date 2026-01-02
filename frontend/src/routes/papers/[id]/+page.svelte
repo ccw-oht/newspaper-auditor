@@ -141,6 +141,7 @@
       city: current.city ?? '',
       paper_name: current.paper_name ?? '',
       website_url: current.website_url ?? '',
+      chain_owner: current.chain_owner ?? '',
       phone: current.phone ?? '',
       email: current.email ?? '',
       mailing_address: current.mailing_address ?? '',
@@ -366,6 +367,10 @@
           <input bind:value={form.website_url} />
         </label>
         <label>
+          Chain owner
+          <input bind:value={form.chain_owner} />
+        </label>
+        <label>
           Phone
           <input bind:value={form.phone} />
         </label>
@@ -452,10 +457,6 @@
             <div>
               <span class="meta-label">Audit time</span>
               <span class="meta-value">{currentAudit.timestamp ? new Date(currentAudit.timestamp).toLocaleString() : '—'}</span>
-            </div>
-            <div>
-              <span class="meta-label">Chain owner</span>
-              <span class="meta-value">{currentAudit.chain_owner ?? '—'}</span>
             </div>
             <div>
               <span class="meta-label">CMS platform</span>
