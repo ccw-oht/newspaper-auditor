@@ -29,6 +29,7 @@ class NewsContact(BaseModel):
     website: Optional[str] = None
     primary_contact: Optional[str] = None
     chain_owner: Optional[str] = None
+    county: Optional[str] = None
     publication_frequency: Optional[str] = None
     wikipedia_link: Optional[str] = None
     source_links: List[str] = []
@@ -64,6 +65,7 @@ class NewsContact(BaseModel):
         "wikipedia_link",
         "publication_frequency",
         "chain_owner",
+        "county",
         mode="before",
     )
     @classmethod
@@ -167,10 +169,12 @@ def _build_prompt(paper: Paper) -> str:
         parts.append(f"Existing email: {paper.email}")
     if paper.mailing_address:
         parts.append(f"Existing mailing address: {paper.mailing_address}")
+    if paper.county:
+        parts.append(f"County: {paper.county}")
     details = "\n".join(parts)
     return (
         "Find the official editorial contact info for the newspaper listed below. "
-        "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, chain_owner, publication_frequency, "
+        "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, chain_owner, county, publication_frequency, "
         "wikipedia_link, source_links. Use null for unknown values. "
         "For source_links, include only human-accessible public URLs (official site pages, press association listings, newsroom contact pages). "
         "Do not include API endpoints, Vertex/Google AI links, or tool/integration URLs.\n\n"
@@ -238,6 +242,8 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
     chain_owner_value = _clean_str(contact.chain_owner)
     if chain_owner_value is not None:
         updates["chain_owner"] = chain_owner_value
+    if _is_missing(paper.county) and contact.county:
+        updates["county"] = _clean_str(contact.county)
 
     for field, value in updates.items():
         setattr(paper, field, value)
@@ -251,6 +257,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "website": _clean_str(contact.website),
         "chain_owner": _clean_str(contact.chain_owner),
         "publication_frequency": _clean_str(contact.publication_frequency),
+        "county": _clean_str(contact.county),
         "phone": _normalize_phone(contact.phone) if contact.phone else None,
         "email": _clean_str(contact.email),
         "mailing_address": _clean_str(contact.mailing_address),

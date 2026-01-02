@@ -419,6 +419,10 @@
               <dd>{safeString(lookupInfo.publication_frequency) ?? '—'}</dd>
             </div>
             <div>
+              <dt>County</dt>
+              <dd>{safeString(lookupInfo.county) ?? '—'}</dd>
+            </div>
+            <div>
               <dt>Phone</dt>
               <dd>{safeString(lookupInfo.phone) ?? '—'}</dd>
             </div>
