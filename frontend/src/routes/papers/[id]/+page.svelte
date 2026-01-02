@@ -52,7 +52,6 @@
     | 'paywall'
     | 'notices'
     | 'responsive'
-    | 'chain_owner'
     | 'cms_platform'
     | 'cms_vendor';
 
@@ -62,7 +61,6 @@
     { key: 'paywall', label: 'Paywall', type: 'select' },
     { key: 'notices', label: 'Public Notices', type: 'select' },
     { key: 'responsive', label: 'Responsive', type: 'select' },
-    { key: 'chain_owner', label: 'Chain owner', type: 'text' },
     { key: 'cms_platform', label: 'CMS platform', type: 'text' },
     { key: 'cms_vendor', label: 'CMS vendor', type: 'text' }
   ];
@@ -76,7 +74,6 @@
       paywall: '',
       notices: '',
       responsive: '',
-      chain_owner: '',
       cms_platform: '',
       cms_vendor: ''
     };

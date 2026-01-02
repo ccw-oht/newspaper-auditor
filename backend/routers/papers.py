@@ -49,25 +49,35 @@ def _publication_frequency_value(paper: Paper) -> Optional[str]:
     return None
 
 
-def _prioritized_value_expr(audit_column, paper_column, override_key: str, label: str, *, prefer_paper: bool = False):
+def _prioritized_value_expr(
+    audit_column,
+    paper_column,
+    override_key: str | None,
+    label: str,
+    *,
+    prefer_paper: bool = False,
+    use_override: bool = True,
+):
     """
     Create a SQL expression that prioritizes: override > audit (non-manual-review) > paper > audit (any)
     
     Args:
         audit_column: Column from audit table
         paper_column: Column from paper table
-        override_key: Key in audit_overrides JSON field (e.g., 'chain_owner', 'cms_platform')
+        override_key: Key in audit_overrides JSON field (e.g., 'cms_platform')
         label: Label for the resulting expression
     """
-    # Extract override value from JSON field using PostgreSQL JSON operator
-    # Paper.audit_overrides[override_key] returns the JSON value; .as_string() converts to text
-    # If key doesn't exist, returns NULL which coalesce will skip
-    override_expr = func.nullif(
-        func.trim(
-            func.cast(Paper.audit_overrides[override_key].as_string(), String)
-        ),
-        ""
-    )
+    override_expr = None
+    if use_override and override_key:
+        # Extract override value from JSON field using PostgreSQL JSON operator
+        # Paper.audit_overrides[override_key] returns the JSON value; .as_string() converts to text
+        # If key doesn't exist, returns NULL which coalesce will skip
+        override_expr = func.nullif(
+            func.trim(
+                func.cast(Paper.audit_overrides[override_key].as_string(), String)
+            ),
+            ""
+        )
     
     audit_trimmed = func.nullif(func.trim(audit_column), "")
     paper_trimmed = func.nullif(func.trim(paper_column), "")
@@ -88,7 +98,6 @@ AUDIT_OVERRIDE_FIELDS = {
     "paywall",
     "notices",
     "responsive",
-    "chain_owner",
     "cms_platform",
     "cms_vendor",
 }
@@ -220,9 +229,10 @@ def list_papers(
     chain_owner_value = _prioritized_value_expr(
         latest.c.chain_owner,
         Paper.chain_owner,
-        "chain_owner",
+        None,
         "chain_owner_value",
         prefer_paper=True,
+        use_override=False,
     )
     cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
     cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
@@ -545,9 +555,10 @@ def list_paper_ids(
     chain_owner_value = _prioritized_value_expr(
         latest.c.chain_owner,
         Paper.chain_owner,
-        "chain_owner",
+        None,
         "chain_owner_value",
         prefer_paper=True,
+        use_override=False,
     )
     cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
     cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
@@ -656,9 +667,10 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
     chain_owner_value = _prioritized_value_expr(
         latest.c.chain_owner,
         Paper.chain_owner,
-        "chain_owner",
+        None,
         "chain_owner_value",
         prefer_paper=True,
+        use_override=False,
     )
     cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
     cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")

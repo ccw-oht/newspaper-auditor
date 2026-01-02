@@ -35,7 +35,7 @@ ALLOWED_ACTIONS = {
     "invalid": ["skip"],
 }
 
-PROTECTED_METADATA_FIELDS = ("chain_owner", "cms_platform", "cms_vendor")
+PROTECTED_METADATA_FIELDS = ("cms_platform", "cms_vendor")
 
 
 def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[StagedRow], Dict[str, int]]:

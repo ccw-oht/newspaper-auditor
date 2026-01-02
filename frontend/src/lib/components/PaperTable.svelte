@@ -372,7 +372,7 @@ function goToLast() {
                     </div>
                     <div class="detail-block">
                       <h4>Platform</h4>
-                      <div class="detail-line"><span>Chain:</span> {item.chain_owner ?? '—'}</div>
+                      <div class="detail-line"><span>Owner:</span> {item.chain_owner ?? '—'}</div>
                       <div class="detail-line"><span>CMS platform:</span> {item.cms_platform ?? '—'}</div>
                       <div class="detail-line"><span>CMS vendor:</span> {item.cms_vendor ?? '—'}</div>
                       <div class="detail-line"><span>Frequency:</span> {item.publication_frequency ?? '—'}</div>
