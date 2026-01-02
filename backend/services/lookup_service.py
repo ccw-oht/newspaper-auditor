@@ -237,7 +237,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         updates["email"] = _clean_str(contact.email)
     if _is_missing(paper.mailing_address) and contact.mailing_address:
         updates["mailing_address"] = _clean_str(contact.mailing_address)
-    if _is_missing(paper.publication_frequency) and contact.publication_frequency:
+    if contact.publication_frequency:
         updates["publication_frequency"] = _clean_str(contact.publication_frequency)
     chain_owner_value = _clean_str(contact.chain_owner)
     if chain_owner_value is not None:

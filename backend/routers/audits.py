@@ -61,13 +61,13 @@ def _apply_metadata_updates(paper: Paper, results: dict[str, str | None]) -> Non
             setattr(paper, attr, value)
 
 
-def _run_audit_or_timeout(paper: Paper) -> dict[str, str | None]:
+def _run_audit_or_timeout(paper: Paper) -> tuple[dict[str, str | None] | None, str | None]:
     try:
-        return run_audit(paper.website_url)
+        return run_audit(paper.website_url), None
     except HomepageFetchTimeoutError as exc:
         safe_url = paper.website_url or "No website URL"
         detail = f"Homepage fetch timed out for paper {paper.id} ({safe_url}): {exc.detail}"
-        raise HTTPException(status_code=504, detail=detail) from exc
+        return None, detail
 
 @router.post("/batch", response_model=list[schemas.AuditOut])
 def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db)):
@@ -90,25 +90,33 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
     audits: list[Audit] = []
     for paper_id in payload.ids:
         paper = papers[paper_id]
-        results = _run_audit_or_timeout(paper)
-        audit = Audit(
-            paper_id=paper.id,
-            has_pdf=results["Has PDF Edition?"],
-            pdf_only=results["PDF-Only?"],
-            paywall=results["Paywall?"],
-            notices=results["Free Public Notices?"],
-            responsive=results["Mobile Responsive?"],
-            sources=results["Audit Sources"],
-            notes=results["Audit Notes"],
-            homepage_html=results.get("Homepage HTML"),
-            chain_owner=results.get("Chain Owner"),
-            cms_platform=results.get("CMS Platform"),
-            cms_vendor=results.get("CMS Vendor"),
-            timestamp=datetime.utcnow()
-        )
+        results, error_note = _run_audit_or_timeout(paper)
+        if results:
+            audit = Audit(
+                paper_id=paper.id,
+                has_pdf=results["Has PDF Edition?"],
+                pdf_only=results["PDF-Only?"],
+                paywall=results["Paywall?"],
+                notices=results["Free Public Notices?"],
+                responsive=results["Mobile Responsive?"],
+                sources=results["Audit Sources"],
+                notes=results["Audit Notes"],
+                homepage_html=results.get("Homepage HTML"),
+                chain_owner=results.get("Chain Owner"),
+                cms_platform=results.get("CMS Platform"),
+                cms_vendor=results.get("CMS Vendor"),
+                timestamp=datetime.utcnow()
+            )
+        else:
+            audit = Audit(
+                paper_id=paper.id,
+                notes=error_note,
+                timestamp=datetime.utcnow()
+            )
         db.add(audit)
         audits.append(audit)
-        _apply_metadata_updates(paper, results)
+        if results:
+            _apply_metadata_updates(paper, results)
 
     db.commit()
     for audit in audits:
@@ -137,25 +145,33 @@ def audit_one(paper_id: int, db: Session = Depends(get_db)):
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    results = _run_audit_or_timeout(paper)
+    results, error_note = _run_audit_or_timeout(paper)
 
-    audit = Audit(
-        paper_id=paper.id,
-        has_pdf=results["Has PDF Edition?"],
-        pdf_only=results["PDF-Only?"],
-        paywall=results["Paywall?"],
-        notices=results["Free Public Notices?"],
-        responsive=results["Mobile Responsive?"],
-        sources=results["Audit Sources"],
-        notes=results["Audit Notes"],
-        homepage_html=results.get("Homepage HTML"),
-        chain_owner=results.get("Chain Owner"),
-        cms_platform=results.get("CMS Platform"),
-        cms_vendor=results.get("CMS Vendor"),
-        timestamp=datetime.utcnow()
-    )
+    if results:
+        audit = Audit(
+            paper_id=paper.id,
+            has_pdf=results["Has PDF Edition?"],
+            pdf_only=results["PDF-Only?"],
+            paywall=results["Paywall?"],
+            notices=results["Free Public Notices?"],
+            responsive=results["Mobile Responsive?"],
+            sources=results["Audit Sources"],
+            notes=results["Audit Notes"],
+            homepage_html=results.get("Homepage HTML"),
+            chain_owner=results.get("Chain Owner"),
+            cms_platform=results.get("CMS Platform"),
+            cms_vendor=results.get("CMS Vendor"),
+            timestamp=datetime.utcnow()
+        )
+    else:
+        audit = Audit(
+            paper_id=paper.id,
+            notes=error_note,
+            timestamp=datetime.utcnow()
+        )
     db.add(audit)
-    _apply_metadata_updates(paper, results)
+    if results:
+        _apply_metadata_updates(paper, results)
     db.commit()
     db.refresh(audit)
     return audit
