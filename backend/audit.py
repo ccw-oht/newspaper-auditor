@@ -34,6 +34,7 @@ public_notice_keywords = [
 ]
 pdf_homepage_keywords = [
     "e-edition",
+    "e-Edition",
     "eedition",
     "e edition",
     "epaper",
@@ -50,14 +51,16 @@ pdf_homepage_keywords = [
     "epost",
     "e-post",
     "e post",
+    "issuu",
     "print archive",
     "online paper",
     "online-newspaper",
 ]
 pdf_href_keywords = [
     "eedition",
+    "e-Edition",
     "epaper",
-    "ePaper"
+    "ePaper",
     "e-edition",
     "enewspaper",
     "digitaledition",
@@ -73,9 +76,47 @@ pdf_href_keywords = [
     "print archive",
     "online paper",
     "online-newspaper",
-    "issue="
+    "issue=",
     "digital-issues",
+    "issuu.com",
+    "isu.pub/",
 ]
+
+ISSUU_TOKENS = ("issuu.com", "isu.pub/")
+
+
+def _is_pdf_like_link(link: str | None) -> bool:
+    if not link:
+        return False
+    lowered = link.lower()
+    if lowered.endswith(".pdf"):
+        return True
+    return any(keyword in lowered for keyword in pdf_href_keywords)
+
+
+def _is_issuu_link(link: str | None) -> bool:
+    if not link:
+        return False
+    lowered = link.lower()
+    return any(token in lowered for token in ISSUU_TOKENS)
+
+
+def _collect_embed_links(soup: BeautifulSoup) -> list[str]:
+    links: list[str] = []
+    for tag in soup.find_all(["iframe", "embed", "object"]):
+        for attr in ("src", "data", "data-src", "data-url"):
+            value = tag.get(attr)
+            if isinstance(value, str) and value.strip():
+                links.append(value.strip())
+    for script in soup.find_all("script", src=True):
+        src = script.get("src")
+        if isinstance(src, str) and src.strip():
+            links.append(src.strip())
+    for tag in soup.find_all(attrs={"data-issuu-id": True}):
+        issuu_id = tag.get("data-issuu-id")
+        if isinstance(issuu_id, str) and issuu_id.strip():
+            links.append(f"issuu-id:{issuu_id.strip()}")
+    return links
 
 article_href_keywords = [
     "article",
@@ -370,7 +411,7 @@ def check_sitemap(base_url):
                     loc = elem.text.lower()
                     urls.append(loc)
                     total += 1
-                    if loc.endswith(".pdf"):
+                    if _is_pdf_like_link(loc):
                         pdf_count += 1
                     if any(k in loc for k in public_notice_keywords):
                         notices_found = True
@@ -449,7 +490,7 @@ def check_rss(base_url):
                 if link_text:
                     entry_count += 1
                     lowered_link = link_text.lower()
-                    if lowered_link.endswith('.pdf') or any(keyword in lowered_link for keyword in pdf_href_keywords):
+                    if _is_pdf_like_link(lowered_link):
                         pdf_entry_count += 1
 
             atom_ns = '{http://www.w3.org/2005/Atom}'
@@ -468,7 +509,7 @@ def check_rss(base_url):
                 if href:
                     entry_count += 1
                     lowered_href = href.lower()
-                    if lowered_href.endswith('.pdf') or any(keyword in lowered_href for keyword in pdf_href_keywords):
+                    if _is_pdf_like_link(lowered_href):
                         pdf_entry_count += 1
 
         break  # first valid feed is enough
@@ -607,7 +648,7 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
                 continue
 
             text_match = any(keyword in anchor_text for keyword in pdf_homepage_keywords)
-            href_match = any(keyword in href_lower for keyword in pdf_href_keywords)
+            href_match = _is_pdf_like_link(href_lower)
             if not pdf_links and (text_match or href_match):
                 pdf_hint_links.append(anchor["href"])
 
@@ -616,6 +657,10 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
                 article_href_match = any(keyword in href_lower for keyword in article_href_keywords)
                 if article_text_match or article_href_match:
                     article_hint_links.append(anchor["href"])
+
+        embed_links = _collect_embed_links(soup)
+        issuu_embeds = [link for link in embed_links if _is_issuu_link(link)]
+        pdf_embed_links = [link for link in embed_links if _is_pdf_like_link(link)]
 
         if pdf_hint_links and not pdf_links:
             has_pdf = "Yes"
@@ -628,6 +673,22 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
         if pdf_links:
             has_pdf = "Yes"
             notes.append(f"Found {len(pdf_links)} PDF links on homepage")
+            sources.append("Homepage")
+
+        if issuu_embeds:
+            has_pdf = "Yes"
+            notes.append(
+                "Homepage contains Issuu embed(s): "
+                + ", ".join(sorted(set(issuu_embeds))[:3])
+            )
+            sources.append("Homepage")
+
+        if pdf_embed_links and not issuu_embeds:
+            has_pdf = "Yes"
+            notes.append(
+                "Homepage contains PDF-style embed(s): "
+                + ", ".join(sorted(set(pdf_embed_links))[:3])
+            )
             sources.append("Homepage")
 
         article_elements = soup.find_all("article")
