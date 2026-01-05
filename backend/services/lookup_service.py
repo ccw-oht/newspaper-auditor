@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -155,6 +156,27 @@ def _normalize_phone(value: Optional[str]) -> Optional[str]:
         return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
     cleaned = value.strip()
     return cleaned or None
+
+
+def _normalize_phone_text(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+
+    pattern = re.compile(r"\+?1?[\s\-.()]*\d{3}[\s\-.()]*\d{3}[\s\-.()]*\d{4}")
+
+    def _format_match(match: re.Match[str]) -> str:
+        digits = "".join(ch for ch in match.group(0) if ch.isdigit())
+        if len(digits) == 11 and digits.startswith("1"):
+            digits = digits[1:]
+        if len(digits) == 10:
+            return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+        return match.group(0)
+
+    formatted = pattern.sub(_format_match, text)
+    return formatted or None
 def _build_prompt(paper: Paper) -> str:
     parts = [
         f"Newspaper name: {paper.paper_name}",
@@ -232,11 +254,13 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
 
     updates: Dict[str, Optional[str]] = {}
     if _is_missing(paper.phone) and contact.phone:
-        updates["phone"] = _normalize_phone(contact.phone)
+        updates["phone"] = _normalize_phone_text(contact.phone)
     if _is_missing(paper.email) and contact.email:
         updates["email"] = _clean_str(contact.email)
     if _is_missing(paper.mailing_address) and contact.mailing_address:
         updates["mailing_address"] = _clean_str(contact.mailing_address)
+    if _is_missing(paper.website_url) and contact.website:
+        updates["website_url"] = _clean_str(contact.website)
     if contact.publication_frequency:
         updates["publication_frequency"] = _clean_str(contact.publication_frequency)
     chain_owner_value = _clean_str(contact.chain_owner)
@@ -258,7 +282,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "chain_owner": _clean_str(contact.chain_owner),
         "publication_frequency": _clean_str(contact.publication_frequency),
         "county": _clean_str(contact.county),
-        "phone": _normalize_phone(contact.phone) if contact.phone else None,
+        "phone": _normalize_phone_text(contact.phone),
         "email": _clean_str(contact.email),
         "mailing_address": _clean_str(contact.mailing_address),
     }
