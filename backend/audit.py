@@ -80,9 +80,12 @@ pdf_href_keywords = [
     "digital-issues",
     "issuu.com",
     "isu.pub/",
+    "pagesuite-professional.co.uk",
+    "pagesuite.com",
 ]
 
 ISSUU_TOKENS = ("issuu.com", "isu.pub/")
+PAGESUITE_TOKENS = ("pagesuite-professional.co.uk", "pagesuite.com")
 
 
 def _is_pdf_like_link(link: str | None) -> bool:
@@ -99,6 +102,13 @@ def _is_issuu_link(link: str | None) -> bool:
         return False
     lowered = link.lower()
     return any(token in lowered for token in ISSUU_TOKENS)
+
+
+def _is_pagesuite_link(link: str | None) -> bool:
+    if not link:
+        return False
+    lowered = link.lower()
+    return any(token in lowered for token in PAGESUITE_TOKENS)
 
 
 def _collect_embed_links(soup: BeautifulSoup) -> list[str]:
@@ -660,6 +670,7 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
 
         embed_links = _collect_embed_links(soup)
         issuu_embeds = [link for link in embed_links if _is_issuu_link(link)]
+        pagesuite_embeds = [link for link in embed_links if _is_pagesuite_link(link)]
         pdf_embed_links = [link for link in embed_links if _is_pdf_like_link(link)]
 
         if pdf_hint_links and not pdf_links:
@@ -680,6 +691,14 @@ def detect_pdf(homepage_html, sitemap_data, rss_data, chain_detected, cms_vendor
             notes.append(
                 "Homepage contains Issuu embed(s): "
                 + ", ".join(sorted(set(issuu_embeds))[:3])
+            )
+            sources.append("Homepage")
+
+        if pagesuite_embeds:
+            has_pdf = "Yes"
+            notes.append(
+                "Homepage contains PageSuite embed(s): "
+                + ", ".join(sorted(set(pagesuite_embeds))[:3])
             )
             sources.append("Homepage")
 
