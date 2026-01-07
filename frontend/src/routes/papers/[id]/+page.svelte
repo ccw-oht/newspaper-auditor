@@ -309,6 +309,34 @@
     return links.filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim());
   }
 
+  function lookupQueries(): string[] {
+    if (!lookupInfo) return [];
+    const queries = lookupInfo.web_search_queries;
+    if (!Array.isArray(queries)) return [];
+    return queries.filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim());
+  }
+
+  function lookupUsageEntries(): { label: string; value: string }[] {
+    if (!lookupInfo) return [];
+    const usage = lookupInfo.usage_metadata as Record<string, unknown> | undefined;
+    if (!usage) return [];
+    const entries: { label: string; value: string }[] = [];
+    const keys: Array<[string, string]> = [
+      ['prompt_token_count', 'Prompt tokens'],
+      ['candidates_token_count', 'Completion tokens'],
+      ['total_token_count', 'Total tokens'],
+      ['tool_use_prompt_token_count', 'Tool prompt tokens'],
+      ['thoughts_token_count', 'Thoughts tokens']
+    ];
+    keys.forEach(([key, label]) => {
+      const value = usage[key];
+      if (value !== undefined && value !== null) {
+        entries.push({ label, value: String(value) });
+      }
+    });
+    return entries;
+  }
+
   async function saveOverrides() {
     if (overrideSaving) return;
     overrideSaving = true;
@@ -496,6 +524,26 @@
             </div>
           {:else}
             <p class="empty">No source links captured.</p>
+          {/if}
+          {#if lookupQueries().length > 0}
+            <div class="lookup-meta">
+              <h4>Search queries</h4>
+              <ul>
+                {#each lookupQueries() as query}
+                  <li>{query}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+          {#if lookupUsageEntries().length > 0}
+            <div class="lookup-meta">
+              <h4>Usage</h4>
+              <ul>
+                {#each lookupUsageEntries() as entry}
+                  <li>{entry.label}: {entry.value}</li>
+                {/each}
+              </ul>
+            </div>
           {/if}
         {:else}
           <p class="empty">No lookup run yet.</p>
@@ -749,6 +797,25 @@
     font-size: 0.85rem;
     text-decoration: none;
     word-break: break-word;
+  }
+
+  .lookup-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .lookup-meta h4 {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #111827;
+  }
+
+  .lookup-meta ul {
+    margin: 0;
+    padding-left: 1.1rem;
+    color: #4b5563;
+    font-size: 0.85rem;
   }
 
   .lookup-list {

@@ -24,6 +24,7 @@
   let lookupProgressCurrent = 0;
   let lookupProgressTotal = 0;
   let lookupError: string | null = null;
+  let lookupFailures: Array<{ id: number; name: string; error: string }> = [];
   let selectedIds: Set<number> = new Set();
   let pageSize = Number(data.params.limit ?? 50);
   let progressCurrent = 0;
@@ -65,6 +66,7 @@
 
   $: selectedArray = Array.from(selectedIds);
   $: selectedCount = selectedArray.length;
+  $: nameById = new Map(data.response.items.map((item) => [item.id, item.paper_name ?? `Paper ${item.id}`]));
   $: pageIds = data.response.items.map((item) => item.id);
   $: pageSelectionCount = pageIds.filter((id) => selectedIds.has(id)).length;
   $: pageFullySelected = pageIds.length > 0 && pageSelectionCount === pageIds.length;
@@ -235,9 +237,10 @@
       lookupProgressTotal = batchIds.length;
       lookupProgressCurrent = 0;
       lookupError = null;
+      lookupFailures = [];
 
       const batchSize = Math.max(1, Number(import.meta.env.PUBLIC_LOOKUP_BATCH_SIZE) || 10);
-      const failures: string[] = [];
+      const failures: Array<{ id: number; error: string }> = [];
 
       for (let i = 0; i < batchIds.length; i += batchSize) {
         const batch = batchIds.slice(i, i + batchSize);
@@ -245,7 +248,9 @@
         for (const result of results) {
           lookupProgressCurrent += 1;
           if (result.error) {
-            failures.push(result.error);
+            const name = nameById.get(result.paper_id) ?? `Paper ${result.paper_id}`;
+            failures.push({ id: result.paper_id, name, error: result.error });
+            lookupFailures = [...failures];
           }
           await invalidateAll();
 
@@ -506,6 +511,16 @@
 
   {#if lookupError}
     <p class="error">{lookupError}</p>
+    {#if lookupFailures.length > 0}
+      <details class="error-details">
+        <summary>View failed lookups</summary>
+        <ul>
+          {#each lookupFailures as failure}
+            <li><strong>{failure.name}</strong> (#{failure.id}): {failure.error}</li>
+          {/each}
+        </ul>
+      </details>
+    {/if}
   {/if}
 
   <div class="actions">
@@ -743,6 +758,22 @@
   .error {
     color: #b91c1c;
     font-weight: 600;
+  }
+
+  .error-details {
+    margin: 0.5rem 0 0;
+    color: #7f1d1d;
+    font-size: 0.9rem;
+  }
+
+  .error-details summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .error-details ul {
+    margin: 0.5rem 0 0;
+    padding-left: 1.25rem;
   }
 
   .research-form {

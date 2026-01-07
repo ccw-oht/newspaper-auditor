@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from datetime import datetime
@@ -187,6 +188,32 @@ def _normalize_phone_text(value: Optional[str]) -> Optional[str]:
 
     formatted = pattern.sub(_format_match, text)
     return formatted or None
+
+
+def _usage_metadata_dict(usage: Any) -> dict[str, Any]:
+    if usage is None:
+        return {}
+    fields = [
+        "prompt_token_count",
+        "candidates_token_count",
+        "total_token_count",
+        "tool_use_prompt_token_count",
+        "thoughts_token_count",
+    ]
+    payload: dict[str, Any] = {}
+    for field in fields:
+        value = getattr(usage, field, None)
+        if value is not None:
+            payload[field] = value
+    return payload
+
+
+def _coerce_query_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()] if str(value).strip() else []
 def _build_prompt(paper: Paper) -> str:
     parts = [
         f"Newspaper name: {paper.paper_name}",
@@ -247,21 +274,41 @@ def _fetch_contact(paper: Paper) -> NewsContact:
         contents=f"{prompt}\n\nReturn only a JSON object with the required keys.",
         config=config,
     )
+    usage = getattr(response, "usage_metadata", None)
+    candidates = getattr(response, "candidates", None)
+    candidate = candidates[0] if candidates else None
+    grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
+    usage_payload = _usage_metadata_dict(usage)
+    queries = _coerce_query_list(getattr(grounding, "web_search_queries", None) if grounding else None)
+    if _LOOKUP_DEBUG:
+        debug_payload = {
+            "paper_id": paper.id,
+            "usage_metadata": usage,
+            "finish_reason": getattr(candidate, "finish_reason", None) if candidate else None,
+            "web_search_queries": getattr(grounding, "web_search_queries", None) if grounding else None,
+        }
+        print(f"Lookup metadata: {json.dumps(debug_payload, default=str)}")
     raw_text = _extract_response_text(response)
     if _LOOKUP_DEBUG:
         print(f"Lookup raw response for paper_id={paper.id}:\n{raw_text}")
     try:
-        return NewsContact.model_validate_json(raw_text)
+        contact = NewsContact.model_validate_json(raw_text)
     except ValidationError:
         try:
-            parsed = NewsContact.model_validate_json(raw_text[raw_text.find("{") : raw_text.rfind("}") + 1])
-            return parsed
+            contact = NewsContact.model_validate_json(raw_text[raw_text.find("{") : raw_text.rfind("}") + 1])
         except Exception as exc:
             raise RuntimeError(f"Lookup response validation failed: {exc}") from exc
+    if usage_payload:
+        setattr(contact, "_usage_metadata", usage_payload)
+    if queries:
+        setattr(contact, "_web_search_queries", queries)
+    return contact
 
 
 def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
     contact = _fetch_contact(paper)
+    usage = getattr(contact, "_usage_metadata", None)
+    queries = getattr(contact, "_web_search_queries", None)
 
     updates: Dict[str, Optional[str]] = {}
     if _is_missing(paper.phone) and contact.phone:
@@ -298,6 +345,10 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "email": _clean_str(contact.email),
         "mailing_address": _clean_str(contact.mailing_address),
     }
+    if usage:
+        metadata["usage_metadata"] = usage
+    if queries:
+        metadata["web_search_queries"] = queries
 
     extra = dict(paper.extra_data or {})
     extra["contact_lookup"] = metadata
