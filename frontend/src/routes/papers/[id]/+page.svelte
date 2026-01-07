@@ -23,6 +23,7 @@
   let filterQuery = '';
   let lookupInfo: Record<string, unknown> | null = null;
   let primaryContact = '';
+  let socialMediaText = '';
 
   $: selectedAudit = paper.audits.find((audit) => audit.id === selectedAuditId) ?? paper.audits[0] ?? null;
 
@@ -36,7 +37,7 @@
   $: lookupInfo = (paper.extra_data?.contact_lookup as Record<string, unknown> | undefined) ?? null;
 
   let form = buildFormValues(paper);
-  setPrimaryContactFromPaper();
+  setContactExtrasFromPaper();
 
   const summaryFields: { key: keyof PaperDetail['audits'][number]; label: string }[] = [
     { key: 'has_pdf', label: 'Has PDF' },
@@ -146,9 +147,18 @@
     };
   }
 
-  function setPrimaryContactFromPaper() {
+  function setContactExtrasFromPaper() {
     const value = safeString((paper.extra_data?.contact_lookup as Record<string, unknown> | undefined)?.primary_contact);
     primaryContact = value ?? '';
+    const socialLinks = (paper.extra_data?.contact_lookup as Record<string, unknown> | undefined)?.social_media_links;
+    if (Array.isArray(socialLinks)) {
+      socialMediaText = socialLinks
+        .filter((item) => typeof item === 'string' && item.trim())
+        .map((item) => item.trim())
+        .join('\n');
+    } else {
+      socialMediaText = '';
+    }
   }
 
   async function save() {
@@ -158,17 +168,25 @@
         Object.entries(form).map(([key, value]) => [key, value.trim() ? value.trim() : null])
       );
       const primaryContactValue = primaryContact.trim();
+      const socialLinks = parseSocialMediaLinks(socialMediaText);
       if (primaryContactValue) {
         const lookupPayload = {
           ...(lookupInfo ?? {}),
-          primary_contact: primaryContactValue
+          primary_contact: primaryContactValue,
+          social_media_links: socialLinks.length > 0 ? socialLinks : undefined
+        };
+        payload.extra_data = { contact_lookup: lookupPayload };
+      } else if (socialLinks.length > 0) {
+        const lookupPayload = {
+          ...(lookupInfo ?? {}),
+          social_media_links: socialLinks
         };
         payload.extra_data = { contact_lookup: lookupPayload };
       }
       const updated = await updatePaper(paper.id, payload);
       paper = updated;
       form = buildFormValues(paper);
-      setPrimaryContactFromPaper();
+      setContactExtrasFromPaper();
       overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
       await invalidateAll();
     } catch (error) {
@@ -186,7 +204,7 @@
       await invalidateAll();
       paper = await fetchPaperDetail(paper.id);
       form = buildFormValues(paper);
-      setPrimaryContactFromPaper();
+      setContactExtrasFromPaper();
       selectedAuditId = paper.latest_audit?.id ?? selectedAuditId;
       overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
       await tick();
@@ -210,7 +228,7 @@
       await invalidateAll();
       paper = await fetchPaperDetail(paper.id);
       form = buildFormValues(paper);
-      setPrimaryContactFromPaper();
+      setContactExtrasFromPaper();
       selectedAuditId = paper.latest_audit?.id ?? null;
       overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
     } catch (error) {
@@ -230,7 +248,7 @@
       await invalidateAll();
       paper = await fetchPaperDetail(paper.id);
       form = buildFormValues(paper);
-      setPrimaryContactFromPaper();
+      setContactExtrasFromPaper();
     } catch (error) {
       console.error(error);
       lookupError = error instanceof Error ? error.message : 'Failed to run lookup';
@@ -270,11 +288,25 @@
     return trimmed ? trimmed : null;
   }
 
+  function parseSocialMediaLinks(value: string): string[] {
+    return value
+      .split(/[\n,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
   function lookupLinks(): string[] {
     if (!lookupInfo) return [];
     const sources = lookupInfo.source_links;
     if (!Array.isArray(sources)) return [];
     return sources.filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim());
+  }
+
+  function lookupSocialLinks(): string[] {
+    if (!lookupInfo) return [];
+    const links = lookupInfo.social_media_links;
+    if (!Array.isArray(links)) return [];
+    return links.filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim());
   }
 
   async function saveOverrides() {
@@ -376,6 +408,10 @@
           <input bind:value={primaryContact} placeholder="Add primary contact" />
         </label>
         <label>
+          Social media links
+          <textarea rows="3" bind:value={socialMediaText} placeholder="https://..." />
+        </label>
+        <label>
           Email
           <input bind:value={form.email} />
         </label>
@@ -433,6 +469,18 @@
             <div>
               <dt>Mailing address</dt>
               <dd>{safeString(lookupInfo.mailing_address) ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Social media</dt>
+              <dd>
+                {#if lookupSocialLinks().length > 0}
+                  {#each lookupSocialLinks() as link, index}
+                    <a href={link} target="_blank" rel="noreferrer">{link}</a>{index < lookupSocialLinks().length - 1 ? ', ' : ''}
+                  {/each}
+                {:else}
+                  —
+                {/if}
+              </dd>
             </div>
           </dl>
           {#if safeString(lookupInfo.wikipedia_link)}

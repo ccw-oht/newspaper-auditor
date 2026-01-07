@@ -130,6 +130,40 @@ function goToLast() {
     return `https://${trimmed.replace(/^\/+/, '')}`;
   }
 
+  function socialLinks(item: PaperSummary): string[] {
+    const extra = item.extra_data as Record<string, unknown> | null | undefined;
+    const lookup = extra?.contact_lookup as Record<string, unknown> | undefined;
+    const links = lookup?.social_media_links;
+    if (!Array.isArray(links)) return [];
+    const cleaned = links
+      .filter((value) => typeof value === 'string')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return Array.from(new Set(cleaned));
+  }
+
+  function socialLabel(link: string): string {
+    const lowered = link.toLowerCase();
+    if (lowered.includes('facebook.com')) return 'Facebook';
+    if (lowered.includes('instagram.com')) return 'Instagram';
+    if (lowered.includes('linkedin.com')) return 'LinkedIn';
+    if (lowered.includes('youtube.com') || lowered.includes('youtu.be')) return 'YouTube';
+    if (lowered.includes('tiktok.com')) return 'TikTok';
+    if (lowered.includes('twitter.com') || lowered.includes('x.com')) return 'X';
+    return 'Social link';
+  }
+
+  function socialIcon(link: string): 'facebook' | 'instagram' | 'linkedin' | 'youtube' | 'tiktok' | 'x' | 'link' {
+    const lowered = link.toLowerCase();
+    if (lowered.includes('facebook.com')) return 'facebook';
+    if (lowered.includes('instagram.com')) return 'instagram';
+    if (lowered.includes('linkedin.com')) return 'linkedin';
+    if (lowered.includes('youtube.com') || lowered.includes('youtu.be')) return 'youtube';
+    if (lowered.includes('tiktok.com')) return 'tiktok';
+    if (lowered.includes('twitter.com') || lowered.includes('x.com')) return 'x';
+    return 'link';
+  }
+
   function statusClass(field: string, value: string | null | undefined): string {
     const normalized = (value ?? '').toString().trim().toLowerCase();
     if (!normalized || normalized === '—') return 'status neutral';
@@ -261,7 +295,7 @@ function goToLast() {
           aria-sort={columnAriaSort('website_url')}
         >
           <button type="button" on:click={() => toggleSort('website_url')}>
-            Website
+            Links
             {#if sortField === 'website_url'}
               <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
             {/if}
@@ -302,15 +336,66 @@ function goToLast() {
             <td>{item.city ?? '—'}</td>
             <td>{item.state ?? '—'}</td>
             <td>
-              {#if normalizeWebsiteUrl(item.website_url)}
-                <a
-                  class="external"
-                  href={normalizeWebsiteUrl(item.website_url) ?? undefined}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Visit
-                </a>
+              {#if normalizeWebsiteUrl(item.website_url) || socialLinks(item).length > 0}
+                <div class="link-icons">
+                  {#if normalizeWebsiteUrl(item.website_url)}
+                    <a
+                      class="icon-link site"
+                      href={normalizeWebsiteUrl(item.website_url) ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Website"
+                      aria-label="Website"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M12 3.5c-4.7 0-8.5 3.8-8.5 8.5s3.8 8.5 8.5 8.5 8.5-3.8 8.5-8.5S16.7 3.5 12 3.5Zm0 1.8c1.6 0 3.1.5 4.2 1.4-.7.2-1.6.3-2.6.3-.8 0-1.6 0-2.3-.1.3-1 .5-1.8.7-2.6Zm-2.6.4c-.2.7-.4 1.5-.6 2.4-1.5-.2-2.8-.6-3.8-1.1 1.2-.7 2.7-1.2 4.4-1.3Zm-5.1 3.2c1.2.6 2.8 1.1 4.6 1.3-.1.6-.1 1.3-.1 2s0 1.3.1 2c-1.8.2-3.4.7-4.6 1.3-.3-.9-.5-1.8-.5-2.8s.2-1.9.5-2.8Zm5.1 9.9c-1.7-.2-3.2-.6-4.4-1.3 1-.5 2.3-.9 3.8-1.1.2.9.4 1.7.6 2.4Zm2.6.4c-.2-.7-.4-1.6-.7-2.6.7-.1 1.5-.1 2.3-.1 1 0 1.9.1 2.6.3-1.1.9-2.6 1.4-4.2 1.4Zm3.4-4c-.8-.2-1.7-.3-2.7-.3-.9 0-1.8.1-2.6.2-.1-.6-.1-1.2-.1-1.9s0-1.3.1-1.9c.8.1 1.6.2 2.6.2 1 0 1.9-.1 2.7-.3.1.6.1 1.2.1 1.9s0 1.3-.1 1.9Zm3.4-6.3c-1.2.6-2.8 1.1-4.6 1.3.1-.6.1-1.3.1-2s0-1.3-.1-2c1.8-.2 3.4-.7 4.6-1.3.3.9.5 1.8.5 2.8s-.2 1.9-.5 2.8Zm-4.2-2c-.2-.9-.4-1.7-.6-2.4 1.7.2 3.2.6 4.4 1.3-1 .5-2.3.9-3.8 1.1Z"
+                        />
+                      </svg>
+                    </a>
+                  {/if}
+                  {#each socialLinks(item) as link}
+                    <a
+                      class={`icon-link social ${socialIcon(link)}`}
+                      href={normalizeWebsiteUrl(link) ?? undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={socialLabel(link)}
+                      aria-label={socialLabel(link)}
+                    >
+                      {#if socialIcon(link) === 'facebook'}
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M13.5 9H16V6h-2.5C11.6 6 10.5 7.2 10.5 9.2V11H8.5v3h2v6h3v-6H16l.5-3h-3V9.7c0-.4.2-.7.5-.7Z" />
+                        </svg>
+                      {:else if socialIcon(link) === 'instagram'}
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm5 5.2A3.8 3.8 0 1 0 15.8 12 3.8 3.8 0 0 0 12 8.2Zm6.1-.9a1 1 0 1 0-1 1 1 1 0 0 0 1-1Z" />
+                          <path d="M12 9.6A2.4 2.4 0 1 1 9.6 12 2.4 2.4 0 0 1 12 9.6Z" />
+                        </svg>
+                      {:else if socialIcon(link) === 'linkedin'}
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M6.5 9.5h-3v9h3v-9Zm.2-3a1.7 1.7 0 1 1-1.7-1.7 1.7 1.7 0 0 1 1.7 1.7ZM20.5 13.1v5.4h-3v-5c0-1.2-.4-2-1.5-2a1.7 1.7 0 0 0-1.6 1.1 2 2 0 0 0-.1.7v5.2h-3s.1-8.4 0-9h3v1.3a3 3 0 0 1 2.7-1.5c2 0 3.5 1.3 3.5 4Z" />
+                        </svg>
+                      {:else if socialIcon(link) === 'youtube'}
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M19.7 7.3a2.7 2.7 0 0 0-1.9-1.9C16.2 5 12 5 12 5s-4.2 0-5.8.4a2.7 2.7 0 0 0-1.9 1.9A28.4 28.4 0 0 0 4 12a28.4 28.4 0 0 0 .3 4.7 2.7 2.7 0 0 0 1.9 1.9C7.8 19 12 19 12 19s4.2 0 5.8-.4a2.7 2.7 0 0 0 1.9-1.9A28.4 28.4 0 0 0 20 12a28.4 28.4 0 0 0-.3-4.7ZM10.5 15.3v-6l5.2 3-5.2 3Z" />
+                        </svg>
+                      {:else if socialIcon(link) === 'tiktok'}
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M14.8 4c.5 1.2 1.7 2.3 3.2 2.4V9a6.3 6.3 0 0 1-3.2-1v6.2a4.6 4.6 0 1 1-4.6-4.6h.4v2.6h-.4a2 2 0 1 0 2 2V4h2.6Z" />
+                        </svg>
+                      {:else if socialIcon(link) === 'x'}
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M5 4h4.1l3.3 4.6L16.3 4H20l-6 8.1L20.4 20h-4.1l-3.6-5-4 5H5l6.6-8.3L5 4Z" />
+                        </svg>
+                      {:else}
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M7.4 12.5a3.6 3.6 0 0 1 1.1-2.6l3.1-3.1a3.7 3.7 0 0 1 5.2 5.2l-1.7 1.7a.9.9 0 1 1-1.2-1.2l1.7-1.7a1.9 1.9 0 0 0-2.7-2.7l-3.1 3.1a1.9 1.9 0 0 0 0 2.7.9.9 0 0 1-1.3 1.2 3.6 3.6 0 0 1-1.1-2.6Zm9.2-1a3.6 3.6 0 0 1-1.1 2.6l-3.1 3.1a3.7 3.7 0 0 1-5.2-5.2l1.7-1.7a.9.9 0 1 1 1.2 1.2l-1.7 1.7a1.9 1.9 0 0 0 2.7 2.7l3.1-3.1a1.9 1.9 0 0 0 0-2.7.9.9 0 0 1 1.3-1.2 3.6 3.6 0 0 1 1.1 2.6Z" />
+                        </svg>
+                      {/if}
+                    </a>
+                  {/each}
+                </div>
               {:else}
                 —
               {/if}
@@ -526,6 +611,52 @@ function goToLast() {
 
   a.external {
     color: #2563eb;
+  }
+
+  .link-icons {
+    display: flex;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .icon-link {
+    width: 2.2rem;
+    height: 2.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    color: #111827;
+  }
+
+  .icon-link:hover {
+    color: #2563eb;
+    background: transparent;
+  }
+
+  .icon-link svg {
+    width: 1.75rem;
+    height: 1.75rem;
+    fill: currentColor;
+  }
+
+  .icon-link.social {
+    color: #111827;
+  }
+
+  .icon-link.facebook:hover {
+    color: #1877f2;
+  }
+
+  .icon-link.instagram:hover {
+    color: #dd2a7b;
+  }
+
+  .icon-link.x:hover {
+    color: #0f1419;
   }
 
   button {

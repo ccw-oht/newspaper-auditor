@@ -34,6 +34,7 @@ class NewsContact(BaseModel):
     publication_frequency: Optional[str] = None
     wikipedia_link: Optional[str] = None
     source_links: List[str] = []
+    social_media_links: List[str] = []
 
     @field_validator("primary_contact", mode="before")
     @classmethod
@@ -90,11 +91,20 @@ class NewsContact(BaseModel):
             return joined or None
         return str(value).strip() or None
 
-    @field_validator("source_links", mode="before")
+    @field_validator("source_links", "social_media_links", mode="before")
     @classmethod
-    def _coerce_source_links(cls, value: Any) -> List[str]:
+    def _coerce_links(cls, value: Any) -> List[str]:
         if value is None:
             return []
+        if isinstance(value, dict):
+            items: list[str] = []
+            for item in value.values():
+                if item is None:
+                    continue
+                cleaned = str(item).strip()
+                if cleaned:
+                    items.append(cleaned)
+            return items
         if isinstance(value, list):
             return [str(item).strip() for item in value if str(item).strip()]
         if isinstance(value, str):
@@ -197,8 +207,9 @@ def _build_prompt(paper: Paper) -> str:
     return (
         "Find the official editorial contact info for the newspaper listed below. "
         "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, chain_owner, county, publication_frequency, "
-        "wikipedia_link, source_links. Use null for unknown values. "
+        "wikipedia_link, source_links, social_media_links. Use null for unknown values. "
         "For source_links, include only human-accessible public URLs (official site pages, press association listings, newsroom contact pages). "
+        "For social_media_links, include official social media profile URLs only. "
         "Do not include API endpoints, Vertex/Google AI links, or tool/integration URLs.\n\n"
         f"{details}"
     )
@@ -282,6 +293,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "chain_owner": _clean_str(contact.chain_owner),
         "publication_frequency": _clean_str(contact.publication_frequency),
         "county": _clean_str(contact.county),
+        "social_media_links": _normalize_links(contact.social_media_links or []),
         "phone": _normalize_phone_text(contact.phone),
         "email": _clean_str(contact.email),
         "mailing_address": _clean_str(contact.mailing_address),
