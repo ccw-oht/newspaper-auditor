@@ -641,6 +641,44 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No paper IDs provided")
 
+    def _extract_social_links(extra_data: dict) -> list[str]:
+        if not isinstance(extra_data, dict):
+            return []
+        lookup_value = extra_data.get("contact_lookup")
+        if not isinstance(lookup_value, dict):
+            return []
+        links = lookup_value.get("social_media_links")
+        if not isinstance(links, list):
+            return []
+        cleaned: list[str] = []
+        for value in links:
+            if not isinstance(value, str):
+                continue
+            trimmed = value.strip()
+            if trimmed:
+                cleaned.append(trimmed)
+        return cleaned
+
+    def _social_platform(link: str) -> tuple[str, str]:
+        lowered = link.lower()
+        if "facebook.com" in lowered:
+            return ("facebook", "Facebook")
+        if "instagram.com" in lowered:
+            return ("instagram", "Instagram")
+        if "linkedin.com" in lowered:
+            return ("linkedin", "LinkedIn")
+        if "youtube.com" in lowered or "youtu.be" in lowered:
+            return ("youtube", "YouTube")
+        if "tiktok.com" in lowered:
+            return ("tiktok", "TikTok")
+        if "twitter.com" in lowered or "x.com" in lowered:
+            return ("x", "X")
+        if "bsky.app" in lowered or "bsky.social" in lowered or "bluesky" in lowered:
+            return ("bluesky", "Bluesky")
+        if "pinterest.com" in lowered or "pin.it" in lowered:
+            return ("pinterest", "Pinterest")
+        return ("other", "Other Social")
+
     latest_audit_subq = (
         select(
             Audit.id.label("audit_id"),
@@ -712,6 +750,35 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
         "Audit Notes",
         "Latest Audit Timestamp",
     ]
+
+    social_platform_order = [
+        ("facebook", "Facebook"),
+        ("instagram", "Instagram"),
+        ("linkedin", "LinkedIn"),
+        ("youtube", "YouTube"),
+        ("tiktok", "TikTok"),
+        ("x", "X"),
+        ("bluesky", "Bluesky"),
+        ("pinterest", "Pinterest"),
+        ("other", "Other Social"),
+    ]
+
+    social_platform_keys: set[str] = set()
+    for paper_id in payload.ids:
+        mapping = mapping_by_id.get(paper_id)
+        if not mapping:
+            continue
+        paper: Paper = mapping[Paper]
+        for link in _extract_social_links(paper.extra_data or {}):
+            key, _label = _social_platform(link)
+            social_platform_keys.add(key)
+
+    social_platform_headers = [
+        label for key, label in social_platform_order if key in social_platform_keys
+    ]
+    if social_platform_headers:
+        insert_index = headers.index("Primary Contact") + 1
+        headers = headers[:insert_index] + social_platform_headers + headers[insert_index:]
 
     extra_keys: list[str] = []
     extra_key_set: set[str] = set()
@@ -826,6 +893,20 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             elif raw_primary is not None:
                 primary_contact = str(raw_primary).strip() or None
 
+        social_values: list[str] = []
+        if social_platform_headers:
+            platform_links: dict[str, list[str]] = {}
+            for link in _extract_social_links(extra_data):
+                key, _label = _social_platform(link)
+                platform_links.setdefault(key, [])
+                if link not in platform_links[key]:
+                    platform_links[key].append(link)
+            for key, _label in social_platform_order:
+                if key not in social_platform_keys:
+                    continue
+                links = platform_links.get(key, [])
+                social_values.append(" | ".join(links) if links else "")
+
         row = [
             paper.id,
             paper.paper_name or "",
@@ -835,21 +916,27 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             paper.phone or "",
             paper.email or "",
             primary_contact or "",
-            paper.mailing_address or "",
-            paper.county or "",
-            _publication_frequency_value(paper) or "",
-            display_chain or "",
-            display_platform or "",
-            display_vendor or "",
-            has_pdf_value or "",
-            pdf_only_value or "",
-            paywall_value or "",
-            notices_value or "",
-            responsive_value or "",
-            sources_value or "",
-            notes_value or "",
-            timestamp.isoformat() if timestamp else "",
         ]
+        if social_values:
+            row.extend(social_values)
+        row.extend(
+            [
+                paper.mailing_address or "",
+                paper.county or "",
+                _publication_frequency_value(paper) or "",
+                display_chain or "",
+                display_platform or "",
+                display_vendor or "",
+                has_pdf_value or "",
+                pdf_only_value or "",
+                paywall_value or "",
+                notices_value or "",
+                responsive_value or "",
+                sources_value or "",
+                notes_value or "",
+                timestamp.isoformat() if timestamp else "",
+            ]
+        )
 
         extra_values = []
         for key in extra_keys:
