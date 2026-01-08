@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 import os
 import re
+from urllib.parse import urljoin, urlparse
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from bs4 import BeautifulSoup
 from pydantic import BaseModel, ValidationError, field_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..models import Paper
+from ..models import Audit, Paper
 
 try:
     from google import genai
@@ -157,6 +160,69 @@ def _normalize_links(values: List[str]) -> List[str]:
     return normalized
 
 
+def _normalize_social_href(href: str, base_url: Optional[str]) -> Optional[str]:
+    if not href:
+        return None
+    cleaned = href.strip()
+    if not cleaned:
+        return None
+    if cleaned.startswith("//"):
+        cleaned = f"https:{cleaned}"
+    elif cleaned.startswith("/") and base_url:
+        cleaned = urljoin(base_url, cleaned)
+    return cleaned
+
+
+def _is_social_link(url: str) -> bool:
+    lowered = url.lower()
+    return any(
+        token in lowered
+        for token in [
+            "facebook.com",
+            "fb.com",
+            "instagram.com",
+            "linkedin.com",
+            "youtube.com",
+            "youtu.be",
+            "tiktok.com",
+            "twitter.com",
+            "x.com",
+            "bsky.app",
+            "bsky.social",
+            "bluesky",
+            "pinterest.com",
+            "pin.it",
+        ]
+    )
+
+
+def _extract_social_links_from_html(html: str | None, base_url: Optional[str]) -> List[str]:
+    if not html:
+        return []
+    links: List[str] = []
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.find_all("a"):
+        for attr in ("href", "data-href", "data-url"):
+            raw = tag.get(attr)
+            if not isinstance(raw, str):
+                continue
+            normalized = _normalize_social_href(raw, base_url)
+            if normalized and _is_social_link(normalized):
+                links.append(normalized)
+    return _normalize_links(links)
+
+
+def _social_links_from_latest_audit(db: Session, paper: Paper) -> List[str]:
+    stmt = (
+        select(Audit.homepage_html)
+        .where(Audit.paper_id == paper.id)
+        .order_by(Audit.timestamp.desc())
+        .limit(1)
+    )
+    homepage_html = db.execute(stmt).scalar_one_or_none()
+    return _extract_social_links_from_html(homepage_html, paper.website_url)
+
+
 def _normalize_phone(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
@@ -237,6 +303,7 @@ def _build_prompt(paper: Paper) -> str:
         "wikipedia_link, source_links, social_media_links. Use null for unknown values. "
         "For source_links, include only human-accessible public URLs (official site pages, press association listings, newsroom contact pages). "
         "For social_media_links, include official social media profile URLs only. "
+        "When searching social media, include Facebook and Twitter/X by name. "
         "Do not include API endpoints, Vertex/Google AI links, or tool/integration URLs.\n\n"
         f"{details}"
     )
@@ -327,6 +394,9 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
     if _is_missing(paper.county) and contact.county:
         updates["county"] = _clean_str(contact.county)
 
+    homepage_social_links = _social_links_from_latest_audit(db, paper)
+    merged_social_links = _normalize_links((contact.social_media_links or []) + homepage_social_links)
+
     for field, value in updates.items():
         setattr(paper, field, value)
 
@@ -340,7 +410,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "chain_owner": _clean_str(contact.chain_owner),
         "publication_frequency": _clean_str(contact.publication_frequency),
         "county": _clean_str(contact.county),
-        "social_media_links": _normalize_links(contact.social_media_links or []),
+        "social_media_links": merged_social_links,
         "phone": _normalize_phone_text(contact.phone),
         "email": _clean_str(contact.email),
         "mailing_address": _clean_str(contact.mailing_address),
