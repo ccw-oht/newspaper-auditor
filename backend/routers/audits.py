@@ -8,6 +8,7 @@ from .. import schemas
 from ..audit import HomepageFetchTimeoutError, run_audit
 from ..database import SessionLocal
 from ..models import Paper, Audit
+from ..services import lookup_service
 
 router = APIRouter()
 
@@ -59,6 +60,27 @@ def _apply_metadata_updates(paper: Paper, results: dict[str, str | None]) -> Non
                 continue
         if _should_update_metadata(current, value):
             setattr(paper, attr, value)
+
+
+def _apply_audit_social_links(paper: Paper, results: dict[str, str | None]) -> None:
+    homepage_html = results.get("Homepage HTML")
+    if not homepage_html:
+        return
+    extracted_links = lookup_service._extract_social_links_from_html(homepage_html, paper.website_url)
+    if not extracted_links:
+        return
+    extra = dict(paper.extra_data or {})
+    contact_lookup = dict(extra.get("contact_lookup") or {})
+    existing_links: list[str] = []
+    existing_value = contact_lookup.get("social_media_links")
+    if isinstance(existing_value, list):
+        existing_links = [item for item in existing_value if isinstance(item, str)]
+    merged_links = lookup_service._normalize_social_links(extracted_links + existing_links)
+    if not merged_links:
+        return
+    contact_lookup["social_media_links"] = merged_links
+    extra["contact_lookup"] = contact_lookup
+    paper.extra_data = extra
 
 
 def _run_audit_or_timeout(paper: Paper) -> tuple[dict[str, str | None] | None, str | None]:
@@ -117,6 +139,7 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
         audits.append(audit)
         if results:
             _apply_metadata_updates(paper, results)
+            _apply_audit_social_links(paper, results)
 
     db.commit()
     for audit in audits:
@@ -172,6 +195,7 @@ def audit_one(paper_id: int, db: Session = Depends(get_db)):
     db.add(audit)
     if results:
         _apply_metadata_updates(paper, results)
+        _apply_audit_social_links(paper, results)
     db.commit()
     db.refresh(audit)
     return audit

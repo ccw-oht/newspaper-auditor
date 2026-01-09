@@ -209,7 +209,12 @@ def sanitize_homepage_snapshot(
 
     cleaned = html.strip().replace("\x00", "")  # guard against null bytes in HTML
     if len(cleaned) > max_chars:
-        return cleaned[:max_chars], True
+        separator = "\n<!-- SNIPPED MIDDLE -->\n"
+        tail_len = min(100_000, max_chars // 4)
+        head_len = max_chars - tail_len - len(separator)
+        if head_len <= 0:
+            return cleaned[:max_chars], True
+        return f"{cleaned[:head_len]}{separator}{cleaned[-tail_len:]}", True
     return cleaned, False
 
 

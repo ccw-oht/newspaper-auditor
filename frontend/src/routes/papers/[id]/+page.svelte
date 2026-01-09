@@ -518,6 +518,7 @@
           {/if}
           {#if lookupLinks().length > 0}
             <div class="links">
+              <h4>Source links</h4>
               {#each lookupLinks() as link}
                 <a href={link} target="_blank" rel="noreferrer">{link}</a>
               {/each}
@@ -806,6 +807,12 @@
   }
 
   .lookup-meta h4 {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #111827;
+  }
+
+  .panel.lookup .links h4 {
     margin: 0;
     font-size: 0.85rem;
     color: #111827;

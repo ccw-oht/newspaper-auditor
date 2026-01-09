@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from bs4 import BeautifulSoup
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import AliasChoices, BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -37,8 +37,8 @@ class NewsContact(BaseModel):
     county: Optional[str] = None
     publication_frequency: Optional[str] = None
     wikipedia_link: Optional[str] = None
-    source_links: List[str] = []
-    social_media_links: List[str] = []
+    source_links: List[str] = Field(default_factory=list, validation_alias=AliasChoices("source_links", "relevant_source_links"))
+    social_media_links: List[str] = Field(default_factory=list)
 
     @field_validator("primary_contact", mode="before")
     @classmethod
@@ -160,6 +160,158 @@ def _normalize_links(values: List[str]) -> List[str]:
     return normalized
 
 
+def _canonicalize_social_link(url: str) -> Optional[str]:
+    if not url:
+        return None
+    cleaned = url.strip()
+    if not cleaned:
+        return None
+    if cleaned.startswith("//"):
+        cleaned = f"https:{cleaned}"
+    parsed = urlparse(cleaned)
+    host = (parsed.netloc or "").lower()
+    path = parsed.path or ""
+    query = parsed.query or ""
+
+    generic_handles = {
+        "facebook": {"facebook", "fb", "facebookapp", "facebookads"},
+        "twitter": {"twitter", "x", "home", "share"},
+        "instagram": {"instagram", "ig", "reel", "reels"},
+        "youtube": {"youtube", "channel", "c", "user"},
+        "tiktok": {"tiktok"},
+        "pinterest": {"pinterest"},
+        "linkedin": {"linkedin"},
+        "bluesky": {"bluesky"},
+    }
+
+    if "facebook.com" in host:
+        lowered_path = path.lower()
+        if "/sharer.php" in lowered_path or "/share.php" in lowered_path or "/sharer/sharer.php" in lowered_path:
+            return None
+        if lowered_path.startswith("/share"):
+            return None
+        if lowered_path.startswith("/sharer"):
+            return None
+        if lowered_path.startswith("/dialog"):
+            return None
+        if lowered_path.startswith("/plugins/"):
+            return None
+        if any(
+            token in lowered_path
+            for token in ["/posts/", "/photos/", "/videos/", "/reel/", "/reels/", "/watch", "/events/", "/permalink.php", "/story.php"]
+        ):
+            return None
+        if lowered_path in {"", "/"}:
+            return None
+        canonical_path = re.sub(r"/+$", "", lowered_path)
+        if canonical_path in {"/facebook", "/fb", "/facebookapp", "/facebookads"}:
+            return None
+        if canonical_path.startswith("/pages/") or canonical_path.startswith("/profile.php"):
+            return f"https://www.facebook.com{canonical_path}"
+        if canonical_path.count("/") == 1:
+            return f"https://www.facebook.com{canonical_path}"
+        return None
+
+    if "twitter.com" in host or host == "x.com" or host.endswith(".x.com"):
+        lowered_path = path.lower()
+        if lowered_path.startswith("/intent/"):
+            return None
+        if any(
+            lowered_path.startswith(prefix)
+            for prefix in ["/share", "/search", "/home", "/i/", "/hashtag", "/status/"]
+        ):
+            return None
+        if lowered_path in {"", "/"}:
+            return None
+        canonical_path = re.sub(r"/+$", "", lowered_path)
+        handle = canonical_path.lstrip("/").split("/")[0]
+        if handle in generic_handles["twitter"]:
+            return None
+        if canonical_path.count("/") > 1:
+            return None
+        return f"https://twitter.com{canonical_path}"
+
+    if "instagram.com" in host:
+        lowered_path = path.lower()
+        if any(lowered_path.startswith(prefix) for prefix in ["/p/", "/reel/", "/tv/", "/stories/"]):
+            return None
+        if lowered_path in {"", "/"}:
+            return None
+        canonical_path = re.sub(r"/+$", "", lowered_path)
+        handle = canonical_path.lstrip("/").split("/")[0]
+        if handle in generic_handles["instagram"]:
+            return None
+        if canonical_path.count("/") > 1:
+            return None
+        return f"https://www.instagram.com{canonical_path}"
+
+    if "linkedin.com" in host:
+        lowered_path = path.lower()
+        if lowered_path in {"", "/"}:
+            return None
+        canonical_path = re.sub(r"/+$", "", lowered_path)
+        handle = canonical_path.lstrip("/").split("/")[0]
+        if handle in generic_handles["linkedin"]:
+            return None
+        if not any(canonical_path.startswith(prefix) for prefix in ["/company/", "/in/", "/school/"]):
+            return None
+        return f"https://www.linkedin.com{canonical_path}"
+
+    if "youtube.com" in host or "youtu.be" in host:
+        lowered_path = path.lower()
+        if any(lowered_path.startswith(prefix) for prefix in ["/watch", "/shorts", "/playlist"]):
+            return None
+        if lowered_path in {"", "/"}:
+            return None
+        if not any(lowered_path.startswith(prefix) for prefix in ["/@", "/channel/", "/c/", "/user/"]):
+            return None
+        handle = lowered_path.lstrip("/").split("/")[0]
+        if handle in generic_handles["youtube"]:
+            return None
+        return cleaned
+
+    if "tiktok.com" in host:
+        lowered_path = path.lower()
+        if "/video/" in lowered_path or lowered_path.startswith("/t/"):
+            return None
+        if lowered_path in {"", "/"}:
+            return None
+        canonical_path = re.sub(r"/+$", "", lowered_path)
+        handle = canonical_path.lstrip("/").split("/")[0]
+        if handle in generic_handles["tiktok"]:
+            return None
+        if not canonical_path.startswith("/@"):
+            return None
+        return f"https://www.tiktok.com{canonical_path}"
+
+    if "bsky.app" in host or "bsky.social" in host or "bluesky" in host:
+        lowered_path = path.lower()
+        if lowered_path.startswith("/intent/"):
+            return None
+        if lowered_path in {"", "/"}:
+            return None
+        handle = lowered_path.lstrip("/").split("/")[0]
+        if handle in generic_handles["bluesky"]:
+            return None
+        return cleaned
+
+    if "pinterest.com" in host or host == "pin.it":
+        lowered_path = path.lower()
+        if "/pin/create" in lowered_path or "/pin/create/" in lowered_path:
+            return None
+        if lowered_path in {"", "/"}:
+            return None
+        canonical_path = re.sub(r"/+$", "", lowered_path)
+        handle = canonical_path.lstrip("/").split("/")[0]
+        if handle in generic_handles["pinterest"]:
+            return None
+        if canonical_path.count("/") > 1:
+            return None
+        return f"https://www.pinterest.com{canonical_path}"
+
+    return None
+
+
 def _normalize_social_href(href: str, base_url: Optional[str]) -> Optional[str]:
     if not href:
         return None
@@ -210,6 +362,38 @@ def _extract_social_links_from_html(html: str | None, base_url: Optional[str]) -
             if normalized and _is_social_link(normalized):
                 links.append(normalized)
     return _normalize_links(links)
+
+
+def _normalize_social_links(values: List[str]) -> List[str]:
+    canonical: List[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        mapped = _canonicalize_social_link(value)
+        if not mapped:
+            continue
+        if mapped in seen:
+            continue
+        seen.add(mapped)
+        canonical.append(mapped)
+    return canonical
+
+
+def _partition_social_links(values: List[str]) -> tuple[List[str], List[str]]:
+    social: List[str] = []
+    non_social: List[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        canonical = _canonicalize_social_link(value)
+        if canonical:
+            social.append(canonical)
+            continue
+        if _is_social_link(value):
+            continue
+        non_social.append(value)
+    return social, non_social
 
 
 def _social_links_from_latest_audit(db: Session, paper: Paper) -> List[str]:
@@ -298,12 +482,12 @@ def _build_prompt(paper: Paper) -> str:
         parts.append(f"County: {paper.county}")
     details = "\n".join(parts)
     return (
-        "Find the official editorial contact info for the newspaper listed below. "
+        "Find the official contact info for the newspaper listed below. "
         "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, chain_owner, county, publication_frequency, "
-        "wikipedia_link, source_links, social_media_links. Use null for unknown values. "
+        "wikipedia_link, social_media_links, and relevant source_links, . Use null for unknown values. "
         "For source_links, include only human-accessible public URLs (official site pages, press association listings, newsroom contact pages). "
-        "For social_media_links, include official social media profile URLs only. "
-        "When searching social media, include Facebook and Twitter/X by name. "
+        "For social_media_links, include ONLY the MOST RELEVANT official social media profile URL only — one for each found platform, and exclude associated chain/group or parent company pages. "
+        "Keep the number of search queries to 5 or less if possible."
         "Do not include API endpoints, Vertex/Google AI links, or tool/integration URLs.\n\n"
         f"{details}"
     )
@@ -394,15 +578,24 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
     if _is_missing(paper.county) and contact.county:
         updates["county"] = _clean_str(contact.county)
 
+    source_social, source_links = _partition_social_links(contact.source_links or [])
+    existing_lookup = paper.extra_data.get("contact_lookup") if isinstance(paper.extra_data, dict) else None
+    existing_social_links: List[str] = []
+    if isinstance(existing_lookup, dict):
+        existing_value = existing_lookup.get("social_media_links")
+        if isinstance(existing_value, list):
+            existing_social_links = [item for item in existing_value if isinstance(item, str)]
     homepage_social_links = _social_links_from_latest_audit(db, paper)
-    merged_social_links = _normalize_links((contact.social_media_links or []) + homepage_social_links)
+    merged_social_links = _normalize_social_links(
+        existing_social_links + (contact.social_media_links or []) + homepage_social_links + source_social
+    )
 
     for field, value in updates.items():
         setattr(paper, field, value)
 
     metadata: Dict[str, Any] = {
         "last_lookup_at": datetime.utcnow().isoformat(),
-        "source_links": _normalize_links(contact.source_links or []),
+        "source_links": _normalize_links(source_links),
         "wikipedia_link": _clean_str(contact.wikipedia_link),
         "primary_contact": _clean_str(contact.primary_contact),
         "contact_name": _clean_str(contact.name),
