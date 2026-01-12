@@ -272,7 +272,7 @@ class JobHistoryItemOut(BaseModel):
     job_type: str
     job_status: str
     item_id: int
-    paper_id: int
+    paper_id: Optional[int] = None
     paper_name: Optional[str] = None
     status: str
     started_at: Optional[datetime] = None

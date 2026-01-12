@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 
 from .. import schemas
@@ -147,7 +148,7 @@ def list_history_items(
                 started_at=item.started_at,
                 completed_at=item.completed_at,
                 error=item.error,
-                result=item.result,
+                result=jsonable_encoder(item.result) if item.result is not None else None,
             )
         )
     return items

@@ -521,6 +521,13 @@ def _is_overload_error(exc: Exception) -> bool:
     return "503" in message or "unavailable" in lowered or "overloaded" in lowered
 
 
+def _is_retryable_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if _is_overload_error(exc):
+        return True
+    return "did not include text output" in message
+
+
 def _fetch_contact(paper: Paper, *, throttle: bool = True) -> tuple[NewsContact, dict[str, Any]]:
     if throttle and _LOOKUP_REQUEST_DELAY_SECONDS > 0:
         global _LOOKUP_NEXT_TIME
@@ -549,6 +556,9 @@ def _fetch_contact(paper: Paper, *, throttle: bool = True) -> tuple[NewsContact,
     )
     last_error: Exception | None = None
     max_attempts = max(1, _LOOKUP_MAX_ATTEMPTS)
+    response = None
+    raw_text = ""
+    contact: NewsContact | None = None
     for attempt in range(1, max_attempts + 1):
         try:
             response = client.models.generate_content(
@@ -556,41 +566,49 @@ def _fetch_contact(paper: Paper, *, throttle: bool = True) -> tuple[NewsContact,
                 contents=contents,
                 config=config,
             )
+            usage = getattr(response, "usage_metadata", None)
+            candidates = getattr(response, "candidates", None)
+            candidate = candidates[0] if candidates else None
+            grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
+            finish_reason = getattr(candidate, "finish_reason", None) if candidate else None
+            if _LOOKUP_DEBUG:
+                debug_payload = {
+                    "paper_id": paper.id,
+                    "usage_metadata": usage,
+                    "finish_reason": finish_reason,
+                    "web_search_queries": getattr(grounding, "web_search_queries", None) if grounding else None,
+                }
+                print(f"Lookup metadata: {json.dumps(debug_payload, default=str)}")
+            raw_text = _extract_response_text(response)
+            if _LOOKUP_DEBUG:
+                print(f"Lookup raw response for paper_id={paper.id}:\n{raw_text}")
+            try:
+                contact = NewsContact.model_validate_json(raw_text)
+            except ValidationError:
+                contact = NewsContact.model_validate_json(raw_text[raw_text.find("{") : raw_text.rfind("}") + 1])
             break
         except Exception as exc:  # pragma: no cover - runtime-specific error handling
             last_error = exc
-            if not _is_overload_error(exc) or attempt >= max_attempts:
+            if _LOOKUP_DEBUG:
+                print(
+                    f"Lookup attempt {attempt}/{max_attempts} failed for paper_id={paper.id}: {exc}"
+                )
+            if not _is_retryable_error(exc) or attempt >= max_attempts:
                 raise
             backoff = min(_LOOKUP_BACKOFF_SECONDS * (2 ** (attempt - 1)), _LOOKUP_BACKOFF_MAX_SECONDS)
             jitter = backoff * 0.25
             time.sleep(backoff + random.uniform(0, jitter))
     else:  # pragma: no cover - defensive
         raise RuntimeError(f"Lookup failed after {max_attempts} attempts") from last_error
-    usage = getattr(response, "usage_metadata", None)
-    candidates = getattr(response, "candidates", None)
+    usage = getattr(response, "usage_metadata", None) if response else None
+    candidates = getattr(response, "candidates", None) if response else None
     candidate = candidates[0] if candidates else None
     grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
     usage_payload = _usage_metadata_dict(usage)
     queries = _coerce_query_list(getattr(grounding, "web_search_queries", None) if grounding else None)
     finish_reason = getattr(candidate, "finish_reason", None) if candidate else None
-    if _LOOKUP_DEBUG:
-        debug_payload = {
-            "paper_id": paper.id,
-            "usage_metadata": usage,
-            "finish_reason": finish_reason,
-            "web_search_queries": getattr(grounding, "web_search_queries", None) if grounding else None,
-        }
-        print(f"Lookup metadata: {json.dumps(debug_payload, default=str)}")
-    raw_text = _extract_response_text(response)
-    if _LOOKUP_DEBUG:
-        print(f"Lookup raw response for paper_id={paper.id}:\n{raw_text}")
-    try:
-        contact = NewsContact.model_validate_json(raw_text)
-    except ValidationError:
-        try:
-            contact = NewsContact.model_validate_json(raw_text[raw_text.find("{") : raw_text.rfind("}") + 1])
-        except Exception as exc:
-            raise RuntimeError(f"Lookup response validation failed: {exc}") from exc
+    if contact is None:
+        raise RuntimeError("Lookup response validation failed without output")
     if usage_payload:
         setattr(contact, "_usage_metadata", usage_payload)
     if queries:

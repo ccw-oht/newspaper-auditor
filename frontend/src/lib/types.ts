@@ -182,7 +182,7 @@ export interface JobHistoryItem {
   job_type: JobType;
   job_status: JobStatus;
   item_id: number;
-  paper_id: number;
+  paper_id: number | null;
   paper_name: string | null;
   status: JobStatus;
   started_at?: string | null;
