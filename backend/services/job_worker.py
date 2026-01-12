@@ -82,6 +82,20 @@ def _process_job_item(job_id: int, job_type: str, item_id: int) -> None:
                 item.completed_at = datetime.now(timezone.utc)
                 item.error = "Canceled"
                 db.flush()
+                if item.paper_id:
+                    paper = db.get(Paper, item.paper_id)
+                    if paper:
+                        extra = dict(paper.extra_data or {})
+                        job_status = dict(extra.get("job_status") or {})
+                        job_status[job_type] = {
+                            "status": item.status,
+                            "error": item.error,
+                            "job_id": job_id,
+                            "item_id": item.id,
+                            "completed_at": item.completed_at.isoformat(),
+                        }
+                        extra["job_status"] = job_status
+                        paper.extra_data = extra
                 if job:
                     _summarize_job(db, job)
                 db.commit()
@@ -109,6 +123,21 @@ def _process_job_item(job_id: int, job_type: str, item_id: int) -> None:
         item.completed_at = datetime.now(timezone.utc)
         item.status = "failed" if error else "completed"
         db.flush()
+
+        if item.paper_id:
+            paper = db.get(Paper, item.paper_id)
+            if paper:
+                extra = dict(paper.extra_data or {})
+                job_status = dict(extra.get("job_status") or {})
+                job_status[job_type] = {
+                    "status": item.status,
+                    "error": item.error,
+                    "job_id": job_id,
+                    "item_id": item.id,
+                    "completed_at": item.completed_at.isoformat(),
+                }
+                extra["job_status"] = job_status
+                paper.extra_data = extra
 
         job = db.get(Job, job_id)
         if job:

@@ -203,6 +203,20 @@ function goToLast() {
     return !!lookup;
   }
 
+  function hasFailedAudit(item: PaperSummary): boolean {
+    const extra = item.extra_data as Record<string, unknown> | null | undefined;
+    const status = extra?.job_status as Record<string, unknown> | undefined;
+    const audit = status?.audit as Record<string, unknown> | undefined;
+    return audit?.status === 'failed';
+  }
+
+  function hasFailedLookup(item: PaperSummary): boolean {
+    const extra = item.extra_data as Record<string, unknown> | null | undefined;
+    const status = extra?.job_status as Record<string, unknown> | undefined;
+    const lookup = status?.lookup as Record<string, unknown> | undefined;
+    return lookup?.status === 'failed';
+  }
+
   function primaryContact(item: PaperSummary): string | null {
     const extra = item.extra_data as Record<string, unknown> | null | undefined;
     const lookup = extra?.contact_lookup as Record<string, unknown> | undefined;
@@ -457,12 +471,17 @@ function goToLast() {
             </td>
             <td class="actions">
               <div class="action-buttons">
-                <button type="button" disabled={loading} on:click={() => dispatch('audit', { id: item.id, name: item.paper_name ?? `Paper ${item.id}` })}>
+                <button
+                  type="button"
+                  class={hasFailedAudit(item) ? 'failed' : ''}
+                  disabled={loading}
+                  on:click={() => dispatch('audit', { id: item.id, name: item.paper_name ?? `Paper ${item.id}` })}
+                >
                   Audit
                 </button>
                 <button
                   type="button"
-                  class={`secondary${hasLookup(item) ? ' lookup-done' : ''}`}
+                  class={`secondary${hasLookup(item) ? ' lookup-done' : ''}${hasFailedLookup(item) ? ' failed' : ''}`}
                   disabled={loading}
                   on:click={() => dispatch('lookup', { id: item.id, name: item.paper_name ?? `Paper ${item.id}` })}
                 >
@@ -749,6 +768,15 @@ function goToLast() {
     background-color: #16a34a;
     border-color: #15803d;
     color: #ffffff;
+  }
+
+  button.failed {
+    background-color: #dc2626;
+    color: #ffffff;
+  }
+
+  button.secondary.failed {
+    border-color: #b91c1c;
   }
 
   .audit-icons {

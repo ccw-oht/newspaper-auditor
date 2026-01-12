@@ -24,6 +24,7 @@
   let filterQuery = '';
   let lookupInfo: Record<string, unknown> | null = null;
   let lookupLogs: Record<string, unknown> | null = null;
+  let jobStatus: Record<string, unknown> | null = null;
   let primaryContact = '';
   let socialMediaText = '';
 
@@ -38,6 +39,7 @@
   $: filterQuery = $paperFilterQuery;
   $: lookupInfo = (paper.extra_data?.contact_lookup as Record<string, unknown> | undefined) ?? null;
   $: lookupLogs = (lookupInfo?.logs as Record<string, unknown> | undefined) ?? null;
+  $: jobStatus = (paper.extra_data?.job_status as Record<string, unknown> | undefined) ?? null;
 
   let form = buildFormValues(paper);
   setContactExtrasFromPaper();
@@ -152,6 +154,35 @@
 
   function formatJson(value: unknown): string {
     return JSON.stringify(value, null, 2);
+  }
+
+  function formatTimestamp(value: string | null | undefined): string {
+    if (!value) return '—';
+    return new Date(value).toLocaleString();
+  }
+
+  function hasFailedAudit(): boolean {
+    const audit = (jobStatus?.audit as Record<string, unknown> | undefined) ?? null;
+    return audit?.status === 'failed';
+  }
+
+  function hasFailedLookup(): boolean {
+    const lookup = (jobStatus?.lookup as Record<string, unknown> | undefined) ?? null;
+    return lookup?.status === 'failed';
+  }
+
+  function auditStatusValue(key: string): string | null {
+    const audit = (jobStatus?.audit as Record<string, unknown> | undefined) ?? null;
+    const value = audit?.[key];
+    if (typeof value === 'string') return value;
+    return value != null ? String(value) : null;
+  }
+
+  function lookupStatusValue(key: string): string | null {
+    const lookup = (jobStatus?.lookup as Record<string, unknown> | undefined) ?? null;
+    const value = lookup?.[key];
+    if (typeof value === 'string') return value;
+    return value != null ? String(value) : null;
   }
 
   function setContactExtrasFromPaper() {
@@ -390,11 +421,11 @@
       </p>
     </div>
     <div class="header-actions">
-      <button class="audit" type="button" disabled={auditing} on:click={rerunAudit}>
+      <button class={`audit${hasFailedAudit() ? ' failed' : ''}`} type="button" disabled={auditing} on:click={rerunAudit}>
         {auditing ? 'Running…' : 'Re-run audit'}
       </button>
       <button
-        class={`audit secondary${lookupInfo ? ' lookup-done' : ''}`}
+        class={`audit secondary${lookupInfo ? ' lookup-done' : ''}${hasFailedLookup() ? ' failed' : ''}`}
         type="button"
         disabled={lookingUp}
         on:click={runLookupForPaper}
@@ -706,6 +737,36 @@
           </button>
         </form>
       </div>
+
+      <div class="panel job-logs">
+        <h3>Latest job logs</h3>
+        <div class="job-log">
+          <h4>Audit</h4>
+          <p class="meta">Status: {auditStatusValue('status') ?? '—'}</p>
+          <p class="meta">Completed: {formatTimestamp(auditStatusValue('completed_at'))}</p>
+          {#if auditStatusValue('error')}
+            <pre>{auditStatusValue('error')}</pre>
+          {:else}
+            <p class="empty">No audit errors recorded.</p>
+          {/if}
+        </div>
+        <div class="job-log">
+          <h4>Lookup</h4>
+          <p class="meta">Status: {lookupStatusValue('status') ?? '—'}</p>
+          <p class="meta">Completed: {formatTimestamp(lookupStatusValue('completed_at'))}</p>
+          {#if lookupStatusValue('error')}
+            <pre>{lookupStatusValue('error')}</pre>
+          {:else}
+            <p class="empty">No lookup errors recorded.</p>
+          {/if}
+          {#if lookupLogs}
+            <details class="lookup-logs">
+              <summary>Full lookup prompt + response</summary>
+              <pre>{formatJson(lookupLogs)}</pre>
+            </details>
+          {/if}
+        </div>
+      </div>
     </section>
   </div>
 </section>
@@ -763,8 +824,36 @@
     color: #ffffff;
   }
 
+  .audit.failed {
+    background-color: #dc2626;
+  }
+
+  .audit.secondary.failed {
+    border-color: #b91c1c;
+    color: #ffffff;
+  }
+
   .audit.secondary[disabled] {
     color: #9ca3af;
+  }
+
+  .job-logs {
+    gap: 1rem;
+  }
+
+  .job-log h4 {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+
+  .job-log .meta {
+    margin: 0.2rem 0 0;
+    color: #4b5563;
+    font-size: 0.85rem;
+  }
+
+  .job-log pre {
+    margin-top: 0.6rem;
   }
 
   .header-actions {

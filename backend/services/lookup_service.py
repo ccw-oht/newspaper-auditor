@@ -549,7 +549,7 @@ def _fetch_contact(paper: Paper, *, throttle: bool = True) -> tuple[NewsContact,
         "Always return a valid JSON object."
     )
     contents = f"{prompt}\n\nReturn only a JSON object with the required keys."
-    model_name = "gemini-2.5-flash"
+    model_name = "gemini-3-flash-preview"
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,
         tools=[types.Tool(google_search=types.GoogleSearch())],
