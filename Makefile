@@ -1,4 +1,4 @@
-.PHONY: help dev-backend dev-frontend compose-up compose-down compose-down-clean ingest install frontend-install migrate-email migrate-publication-frequency db-shell
+.PHONY: help dev-backend dev-frontend dev-worker compose-up compose-down compose-down-clean ingest install frontend-install migrate-email migrate-publication-frequency migrate-jobs migrate-job-items-fk db-shell
 
 -include .env
 export
@@ -11,6 +11,8 @@ help:
 	@echo "  compose-down - Stop Postgres and remove containers"
 	@echo "  migrate-email - Add the email column to papers"
 	@echo "  migrate-publication-frequency - Add the publication_frequency column to papers"
+	@echo "  migrate-jobs - Add job queue tables"
+	@echo "  migrate-job-items-fk - Add job_items.paper_id foreign key"
 	@echo "  db-shell     - Open a psql shell in the Postgres container"
 	@echo "  ingest       - Example: make ingest CSV=path/to/file.csv"
 
@@ -43,6 +45,9 @@ compose-down-clean:
 dev-backend: install
 	. $(VENV)/bin/activate && $(UVICORN) backend.app:app --reload --host 0.0.0.0 --port 8000
 
+dev-worker: install
+	. $(VENV)/bin/activate && $(PYTHON) -m backend.services.job_worker
+
 frontend-install: $(FRONTEND_STAMP)
 
 $(FRONTEND_STAMP): $(FRONTEND_DIR)/package.json $(FRONTEND_DIR)/package-lock.json
@@ -65,6 +70,12 @@ migrate-email: install
 
 migrate-publication-frequency: install
 	. $(VENV)/bin/activate && $(PYTHON) -m backend.migrations.add_publication_frequency
+
+migrate-jobs: install
+	. $(VENV)/bin/activate && $(PYTHON) -m backend.migrations.add_job_queue
+
+migrate-job-items-fk: install
+	. $(VENV)/bin/activate && $(PYTHON) -m backend.migrations.add_job_items_paper_fk
 
 db-shell:
 	cd docker && docker compose exec db psql -U audit_user -d auditdb

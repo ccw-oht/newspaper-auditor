@@ -13,7 +13,12 @@ import type {
   ResearchSessionListResponse,
   ResearchSessionDetail,
   ResearchSessionCreatePayload,
-  ResearchFeature
+  ResearchFeature,
+  JobSummary,
+  JobDetail,
+  JobQueueState,
+  JobQueueItem,
+  JobHistoryItem
 } from '$lib/types';
 import { API_BASE_URL } from './config';
 
@@ -217,4 +222,64 @@ export async function runResearchFeatures(
     body: JSON.stringify(body)
   });
   return response.features;
+}
+
+export async function enqueueAuditJob(ids: number[], fetchImpl?: FetchLike): Promise<JobSummary> {
+  return request<JobSummary>(`/jobs/audits`, {
+    fetchImpl,
+    method: HttpMethod.POST,
+    body: JSON.stringify({ ids })
+  });
+}
+
+export async function enqueueLookupJob(ids: number[], fetchImpl?: FetchLike): Promise<JobSummary> {
+  return request<JobSummary>(`/jobs/lookups`, {
+    fetchImpl,
+    method: HttpMethod.POST,
+    body: JSON.stringify({ ids })
+  });
+}
+
+export async function fetchActiveJobs(fetchImpl?: FetchLike): Promise<JobSummary[]> {
+  return request<JobSummary[]>(`/jobs/active`, { fetchImpl, method: HttpMethod.GET });
+}
+
+export async function fetchActiveJobItems(fetchImpl?: FetchLike): Promise<JobQueueItem[]> {
+  return request<JobQueueItem[]>(`/jobs/active/items`, { fetchImpl, method: HttpMethod.GET });
+}
+
+export async function fetchJobHistoryItems(limit = 100, offset = 0, fetchImpl?: FetchLike): Promise<JobHistoryItem[]> {
+  return request<JobHistoryItem[]>(`/jobs/history/items?limit=${limit}&offset=${offset}`, { fetchImpl, method: HttpMethod.GET });
+}
+
+export async function fetchJobHistory(limit = 50, offset = 0, fetchImpl?: FetchLike): Promise<JobSummary[]> {
+  return request<JobSummary[]>(`/jobs/history?limit=${limit}&offset=${offset}`, { fetchImpl, method: HttpMethod.GET });
+}
+
+export async function fetchJobDetail(id: number, fetchImpl?: FetchLike): Promise<JobDetail> {
+  return request<JobDetail>(`/jobs/${id}`, { fetchImpl, method: HttpMethod.GET });
+}
+
+export async function cancelJob(id: number, fetchImpl?: FetchLike): Promise<JobSummary> {
+  return request<JobSummary>(`/jobs/${id}/cancel`, { fetchImpl, method: HttpMethod.POST });
+}
+
+export async function clearJobQueue(fetchImpl?: FetchLike): Promise<{ canceled_jobs: number; canceled_items: number }> {
+  return request<{ canceled_jobs: number; canceled_items: number }>(`/jobs/queue`, { fetchImpl, method: HttpMethod.DELETE });
+}
+
+export async function clearJobHistory(fetchImpl?: FetchLike): Promise<{ deleted: number }> {
+  return request<{ deleted: number }>(`/jobs/history`, { fetchImpl, method: HttpMethod.DELETE });
+}
+
+export async function fetchQueueState(fetchImpl?: FetchLike): Promise<JobQueueState> {
+  return request<JobQueueState>(`/jobs/control`, { fetchImpl, method: HttpMethod.GET });
+}
+
+export async function updateQueueState(paused: boolean, fetchImpl?: FetchLike): Promise<JobQueueState> {
+  return request<JobQueueState>(`/jobs/control`, {
+    fetchImpl,
+    method: HttpMethod.POST,
+    body: JSON.stringify({ paused })
+  });
 }

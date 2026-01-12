@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
+import threading
+import time
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -24,6 +27,12 @@ except ModuleNotFoundError:  # pragma: no cover - handled at runtime
 
 _CLIENT = None
 _LOOKUP_DEBUG = os.getenv("LOOKUP_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+_LOOKUP_REQUEST_DELAY_SECONDS = float(os.getenv("LOOKUP_REQUEST_DELAY_SECONDS", "0.2"))
+_LOOKUP_THROTTLE_LOCK = threading.Lock()
+_LOOKUP_NEXT_TIME = 0.0
+_LOOKUP_MAX_ATTEMPTS = int(os.getenv("LOOKUP_MAX_ATTEMPTS", "5"))
+_LOOKUP_BACKOFF_SECONDS = float(os.getenv("LOOKUP_BACKOFF_SECONDS", "1.5"))
+_LOOKUP_BACKOFF_MAX_SECONDS = float(os.getenv("LOOKUP_BACKOFF_MAX_SECONDS", "12"))
 
 
 class NewsContact(BaseModel):
@@ -506,36 +515,69 @@ def _extract_response_text(response) -> str:
     raise RuntimeError("Lookup response did not include text output")
 
 
-def _fetch_contact(paper: Paper) -> NewsContact:
+def _is_overload_error(exc: Exception) -> bool:
+    message = str(exc)
+    lowered = message.lower()
+    return "503" in message or "unavailable" in lowered or "overloaded" in lowered
+
+
+def _fetch_contact(paper: Paper, *, throttle: bool = True) -> tuple[NewsContact, dict[str, Any]]:
+    if throttle and _LOOKUP_REQUEST_DELAY_SECONDS > 0:
+        global _LOOKUP_NEXT_TIME
+        with _LOOKUP_THROTTLE_LOCK:
+            now = time.monotonic()
+            if now < _LOOKUP_NEXT_TIME:
+                time.sleep(_LOOKUP_NEXT_TIME - now)
+            jitter = _LOOKUP_REQUEST_DELAY_SECONDS * 0.25
+            _LOOKUP_NEXT_TIME = max(now, _LOOKUP_NEXT_TIME) + _LOOKUP_REQUEST_DELAY_SECONDS + random.uniform(0, jitter)
+
     client = _get_client()
     prompt = _build_prompt(paper)
     if _LOOKUP_DEBUG:
         print(f"Lookup prompt for paper_id={paper.id}:\n{prompt}")
+    system_instruction = (
+        "You are a specialized researcher for media databases. "
+        "Find official contact information for news organizations. "
+        "Prioritize Wikipedia for history and Press Associations/Official 'About' pages for contacts. "
+        "Always return a valid JSON object."
+    )
+    contents = f"{prompt}\n\nReturn only a JSON object with the required keys."
+    model_name = "gemini-2.5-flash"
     config = types.GenerateContentConfig(
-        system_instruction=(
-            "You are a specialized researcher for media databases. "
-            "Find official contact information for news organizations. "
-            "Prioritize Wikipedia for history and Press Associations/Official 'About' pages for contacts. "
-            "Always return a valid JSON object."
-        ),
+        system_instruction=system_instruction,
         tools=[types.Tool(google_search=types.GoogleSearch())],
     )
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"{prompt}\n\nReturn only a JSON object with the required keys.",
-        config=config,
-    )
+    last_error: Exception | None = None
+    max_attempts = max(1, _LOOKUP_MAX_ATTEMPTS)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=config,
+            )
+            break
+        except Exception as exc:  # pragma: no cover - runtime-specific error handling
+            last_error = exc
+            if not _is_overload_error(exc) or attempt >= max_attempts:
+                raise
+            backoff = min(_LOOKUP_BACKOFF_SECONDS * (2 ** (attempt - 1)), _LOOKUP_BACKOFF_MAX_SECONDS)
+            jitter = backoff * 0.25
+            time.sleep(backoff + random.uniform(0, jitter))
+    else:  # pragma: no cover - defensive
+        raise RuntimeError(f"Lookup failed after {max_attempts} attempts") from last_error
     usage = getattr(response, "usage_metadata", None)
     candidates = getattr(response, "candidates", None)
     candidate = candidates[0] if candidates else None
     grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
     usage_payload = _usage_metadata_dict(usage)
     queries = _coerce_query_list(getattr(grounding, "web_search_queries", None) if grounding else None)
+    finish_reason = getattr(candidate, "finish_reason", None) if candidate else None
     if _LOOKUP_DEBUG:
         debug_payload = {
             "paper_id": paper.id,
             "usage_metadata": usage,
-            "finish_reason": getattr(candidate, "finish_reason", None) if candidate else None,
+            "finish_reason": finish_reason,
             "web_search_queries": getattr(grounding, "web_search_queries", None) if grounding else None,
         }
         print(f"Lookup metadata: {json.dumps(debug_payload, default=str)}")
@@ -553,11 +595,29 @@ def _fetch_contact(paper: Paper) -> NewsContact:
         setattr(contact, "_usage_metadata", usage_payload)
     if queries:
         setattr(contact, "_web_search_queries", queries)
-    return contact
+    logs: dict[str, Any] = {
+        "prompt": prompt,
+        "request_contents": contents,
+        "system_instruction": system_instruction,
+        "model": model_name,
+        "raw_response": raw_text,
+    }
+    if usage_payload:
+        logs["usage_metadata"] = usage_payload
+    if queries:
+        logs["web_search_queries"] = queries
+    if finish_reason is not None:
+        logs["finish_reason"] = finish_reason
+    return contact, logs
 
 
-def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
-    contact = _fetch_contact(paper)
+def _lookup_paper_contact(
+    db: Session,
+    paper: Paper,
+    *,
+    throttle: bool = True,
+) -> tuple[schemas.LookupResult, dict[str, Any]]:
+    contact, logs = _fetch_contact(paper, throttle=throttle)
     usage = getattr(contact, "_usage_metadata", None)
     queries = getattr(contact, "_web_search_queries", None)
 
@@ -608,6 +668,8 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         "email": _clean_str(contact.email),
         "mailing_address": _clean_str(contact.mailing_address),
     }
+    if logs:
+        metadata["logs"] = logs
     if usage:
         metadata["usage_metadata"] = usage
     if queries:
@@ -621,7 +683,7 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
     db.commit()
     db.refresh(paper)
 
-    return schemas.LookupResult(
+    result = schemas.LookupResult(
         paper_id=paper.id,
         updated=bool(updates),
         phone=paper.phone,
@@ -629,3 +691,18 @@ def lookup_paper_contact(db: Session, paper: Paper) -> schemas.LookupResult:
         mailing_address=paper.mailing_address,
         lookup_metadata=metadata,
     )
+    return result, logs
+
+
+def lookup_paper_contact(db: Session, paper: Paper, *, throttle: bool = True) -> schemas.LookupResult:
+    result, _ = _lookup_paper_contact(db, paper, throttle=throttle)
+    return result
+
+
+def lookup_paper_contact_with_logs(
+    db: Session,
+    paper: Paper,
+    *,
+    throttle: bool = True,
+) -> tuple[schemas.LookupResult, dict[str, Any]]:
+    return _lookup_paper_contact(db, paper, throttle=throttle)

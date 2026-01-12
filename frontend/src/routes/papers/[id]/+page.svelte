@@ -1,8 +1,7 @@
 <script lang="ts">
   /* eslint-env browser */
   import { goto, invalidateAll } from '$app/navigation';
-  import { tick } from 'svelte';
-  import { runAudit, runLookup, updatePaper, fetchPaperDetail, clearAuditResults } from '$lib/api';
+  import { enqueueAuditJob, enqueueLookupJob, updatePaper, fetchPaperDetail, clearAuditResults } from '$lib/api';
   import type { PaperDetail, AuditSummary } from '$lib/types';
   import { formatRelativeTime } from '$lib/formatters';
   import { paperFilterQuery } from '$lib/stores/paperFilters';
@@ -17,11 +16,14 @@
   let clearing = false;
   let overrideSaving = false;
   let overrideError: string | null = null;
+  let toastMessage: string | null = null;
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedAuditId = paper.latest_audit?.id ?? null;
   let selectedAudit: PaperDetail['audits'][number] | null = paper.audits[0] ?? null;
   let currentAudit: (PaperDetail['audits'][number] & { overrides?: Record<string, string | null | undefined> | null }) | (AuditSummary & { overrides?: Record<string, string | null | undefined> | null }) | null = paper.latest_audit ?? selectedAudit;
   let filterQuery = '';
   let lookupInfo: Record<string, unknown> | null = null;
+  let lookupLogs: Record<string, unknown> | null = null;
   let primaryContact = '';
   let socialMediaText = '';
 
@@ -35,6 +37,7 @@
   })();
   $: filterQuery = $paperFilterQuery;
   $: lookupInfo = (paper.extra_data?.contact_lookup as Record<string, unknown> | undefined) ?? null;
+  $: lookupLogs = (lookupInfo?.logs as Record<string, unknown> | undefined) ?? null;
 
   let form = buildFormValues(paper);
   setContactExtrasFromPaper();
@@ -147,6 +150,10 @@
     };
   }
 
+  function formatJson(value: unknown): string {
+    return JSON.stringify(value, null, 2);
+  }
+
   function setContactExtrasFromPaper() {
     const value = safeString((paper.extra_data?.contact_lookup as Record<string, unknown> | undefined)?.primary_contact);
     primaryContact = value ?? '';
@@ -200,15 +207,8 @@
   async function rerunAudit() {
     try {
       auditing = true;
-      await runAudit(paper.id);
-      await invalidateAll();
-      paper = await fetchPaperDetail(paper.id);
-      form = buildFormValues(paper);
-      setContactExtrasFromPaper();
-      selectedAuditId = paper.latest_audit?.id ?? selectedAuditId;
-      overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
-      await tick();
-      scrollPreviewIntoView();
+      await enqueueAuditJob([paper.id]);
+      showToast(`Queued audit for ${paper.paper_name ?? `Paper ${paper.id}`}.`);
     } catch (error) {
       console.error(error);
       window.alert('Failed to re-run audit');
@@ -244,11 +244,8 @@
     lookupError = null;
     try {
       lookingUp = true;
-      await runLookup(paper.id);
-      await invalidateAll();
-      paper = await fetchPaperDetail(paper.id);
-      form = buildFormValues(paper);
-      setContactExtrasFromPaper();
+      await enqueueLookupJob([paper.id]);
+      showToast(`Queued lookup for ${paper.paper_name ?? `Paper ${paper.id}`}.`);
     } catch (error) {
       console.error(error);
       lookupError = error instanceof Error ? error.message : 'Failed to run lookup';
@@ -261,10 +258,6 @@
     selectedAuditId = id;
   }
 
-  function scrollPreviewIntoView() {
-    const previewElement = document.querySelector('.preview');
-    previewElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
 
   async function backToList() {
     const query = filterQuery.trim();
@@ -372,6 +365,17 @@
     } finally {
       overrideSaving = false;
     }
+  }
+
+  function showToast(message: string) {
+    toastMessage = message;
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+    }
+    toastTimer = setTimeout(() => {
+      toastMessage = null;
+      toastTimer = null;
+    }, 3000);
   }
 
 </script>
@@ -546,6 +550,12 @@
               </ul>
             </div>
           {/if}
+          {#if lookupLogs}
+            <details class="lookup-logs">
+              <summary>Full lookup prompt + response</summary>
+              <pre>{formatJson(lookupLogs)}</pre>
+            </details>
+          {/if}
         {:else}
           <p class="empty">No lookup run yet.</p>
         {/if}
@@ -700,6 +710,10 @@
   </div>
 </section>
 
+{#if toastMessage}
+  <div class="toast" role="status" aria-live="polite">{toastMessage}</div>
+{/if}
+
 <style>
   .detail {
     display: flex;
@@ -775,6 +789,29 @@
     gap: 0.75rem;
   }
 
+  .toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111827;
+    color: white;
+    padding: 0.75rem 1.25rem;
+    border-radius: 999px;
+    font-weight: 600;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.25);
+    z-index: 40;
+  }
+
+  @media (max-width: 640px) {
+    .toast {
+      left: 1rem;
+      right: 1rem;
+      transform: none;
+      text-align: center;
+    }
+  }
+
   .panel.lookup .meta {
     margin: 0;
     color: #374151;
@@ -823,6 +860,15 @@
     padding-left: 1.1rem;
     color: #4b5563;
     font-size: 0.85rem;
+  }
+
+  .lookup-logs summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .lookup-logs pre {
+    margin-top: 0.75rem;
   }
 
   .lookup-list {

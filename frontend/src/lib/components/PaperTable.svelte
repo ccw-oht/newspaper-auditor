@@ -20,8 +20,8 @@ let startEntry = 0;
 let endEntry = 0;
 
 const dispatch = createEventDispatcher<{
-    audit: { id: number };
-    lookup: { id: number };
+    audit: { id: number; name: string };
+    lookup: { id: number; name: string };
     paginate: { offset: number };
     select: { id: number; checked: boolean };
     selectRange: { ids: number[]; checked: boolean };
@@ -457,14 +457,14 @@ function goToLast() {
             </td>
             <td class="actions">
               <div class="action-buttons">
-                <button type="button" disabled={loading} on:click={() => dispatch('audit', { id: item.id })}>
+                <button type="button" disabled={loading} on:click={() => dispatch('audit', { id: item.id, name: item.paper_name ?? `Paper ${item.id}` })}>
                   Audit
                 </button>
                 <button
                   type="button"
                   class={`secondary${hasLookup(item) ? ' lookup-done' : ''}`}
                   disabled={loading}
-                  on:click={() => dispatch('lookup', { id: item.id })}
+                  on:click={() => dispatch('lookup', { id: item.id, name: item.paper_name ?? `Paper ${item.id}` })}
                 >
                   Lookup
                 </button>

@@ -3,11 +3,12 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { runAudit, runLookup, runLookupBatch, fetchPaperIds, exportPapers, deletePapers, createResearchSession } from '$lib/api';
+  import { enqueueAuditJob, enqueueLookupJob, fetchPaperIds, exportPapers, deletePapers, createResearchSession, fetchPapers } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
   import { browser } from '$app/environment';
   import { paperFilterQuery } from '$lib/stores/paperFilters';
+  import { onDestroy, onMount } from 'svelte';
 
   export let data: {
     response: PaperListResponse;
@@ -21,14 +22,12 @@
 
   let loading = false;
   let lookupLoading = false;
-  let lookupProgressCurrent = 0;
-  let lookupProgressTotal = 0;
   let lookupError: string | null = null;
-  let lookupFailures: Array<{ id: number; name: string; error: string }> = [];
   let selectedIds: Set<number> = new Set();
   let pageSize = Number(data.params.limit ?? 50);
-  let progressCurrent = 0;
-  let progressTotal = 0;
+  let response = data.response;
+  let lastDataResponse = data.response;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
   let currentSortField: string = 'paper_name';
   let currentSortOrder: 'asc' | 'desc' = 'asc';
   let allSelectedAcross = false;
@@ -38,6 +37,8 @@
   let exportError: string | null = null;
   let deleteLoading = false;
   let deleteError: string | null = null;
+  let toastMessage: string | null = null;
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let researchFormOpen = false;
   let researchLoading = false;
   let researchError: string | null = null;
@@ -64,10 +65,13 @@
     }
   }
 
+  $: if (data.response !== lastDataResponse) {
+    response = data.response;
+    lastDataResponse = data.response;
+  }
   $: selectedArray = Array.from(selectedIds);
   $: selectedCount = selectedArray.length;
-  $: nameById = new Map(data.response.items.map((item) => [item.id, item.paper_name ?? `Paper ${item.id}`]));
-  $: pageIds = data.response.items.map((item) => item.id);
+  $: pageIds = response.items.map((item) => item.id);
   $: pageSelectionCount = pageIds.filter((id) => selectedIds.has(id)).length;
   $: pageFullySelected = pageIds.length > 0 && pageSelectionCount === pageIds.length;
   $: showSelectAllBanner = pageFullySelected && !allSelectedAcross;
@@ -103,11 +107,11 @@
     await goto('/papers');
   }
 
-  async function handleAudit(event: CustomEvent<{ id: number }>) {
+  async function handleAudit(event: CustomEvent<{ id: number; name: string }>) {
     try {
       loading = true;
-      await runAudit(event.detail.id);
-      await invalidateAll();
+      await enqueueAuditJob([event.detail.id]);
+      showToast(`Queued audit for ${event.detail.name}.`);
     } catch (error) {
       console.error(error);
       window.alert('Failed to re-run audit. Check console for details.');
@@ -116,11 +120,11 @@
     }
   }
 
-  async function handleLookup(event: CustomEvent<{ id: number }>) {
+  async function handleLookup(event: CustomEvent<{ id: number; name: string }>) {
     try {
       lookupLoading = true;
-      await runLookup(event.detail.id);
-      await invalidateAll();
+      await enqueueLookupJob([event.detail.id]);
+      showToast(`Queued lookup for ${event.detail.name}.`);
     } catch (error) {
       console.error(error);
       window.alert('Failed to run lookup. Check console for details.');
@@ -194,35 +198,18 @@
 
     try {
       loading = true;
-      progressTotal = selectedArray.length;
-      progressCurrent = 0;
       deleteError = null;
-
-      for (const id of selectedArray) {
-        try {
-          await runAudit(id);
-        } catch (error) {
-          console.error(error);
-          window.alert(`Failed to re-run audit for paper ${id}. Continuing with remaining items.`);
-        }
-
-        progressCurrent += 1;
-        await invalidateAll();
-
-        const next = new Set(selectedIds);
-        next.delete(id);
-        selectedIds = next;
-        allSelectedAcross = false;
-        exportError = null;
-        deleteError = null;
-      }
+      await enqueueAuditJob(selectedArray);
+      showToast(`Queued ${selectedArray.length} audit${selectedArray.length === 1 ? '' : 's'}.`);
+      selectedIds = new Set();
+      allSelectedAcross = false;
+      exportError = null;
+      deleteError = null;
     } catch (error) {
       console.error(error);
       window.alert('Failed to run batch audit. Check console for details.');
     } finally {
       loading = false;
-      progressCurrent = 0;
-      progressTotal = 0;
     }
   }
 
@@ -234,39 +221,9 @@
     try {
       lookupLoading = true;
       const batchIds = [...selectedArray];
-      lookupProgressTotal = batchIds.length;
-      lookupProgressCurrent = 0;
       lookupError = null;
-      lookupFailures = [];
-
-      const batchSize = Math.max(1, Number(import.meta.env.PUBLIC_LOOKUP_BATCH_SIZE) || 10);
-      const failures: Array<{ id: number; error: string }> = [];
-
-      for (let i = 0; i < batchIds.length; i += batchSize) {
-        const batch = batchIds.slice(i, i + batchSize);
-        const results = await runLookupBatch(batch);
-        for (const result of results) {
-          lookupProgressCurrent += 1;
-          if (result.error) {
-            const name = nameById.get(result.paper_id) ?? `Paper ${result.paper_id}`;
-            failures.push({ id: result.paper_id, name, error: result.error });
-            lookupFailures = [...failures];
-          }
-          await invalidateAll();
-
-          const next = new Set(selectedIds);
-          next.delete(result.paper_id);
-          selectedIds = next;
-          allSelectedAcross = false;
-          exportError = null;
-          deleteError = null;
-        }
-      }
-
-      if (failures.length > 0) {
-        lookupError = `${failures.length} lookup${failures.length === 1 ? '' : 's'} failed.`;
-      }
-
+      await enqueueLookupJob(batchIds);
+      showToast(`Queued ${batchIds.length} lookup${batchIds.length === 1 ? '' : 's'}.`);
       selectedIds = new Set();
       allSelectedAcross = false;
       exportError = null;
@@ -276,10 +233,29 @@
       lookupError = error instanceof Error ? error.message : 'Failed to run batch lookup.';
     } finally {
       lookupLoading = false;
-      lookupProgressCurrent = 0;
-      lookupProgressTotal = 0;
     }
   }
+
+  async function refreshList() {
+    if (!browser) return;
+    if (document.visibilityState !== 'visible') return;
+    try {
+      const refreshed = await fetchPapers(data.params);
+      response = refreshed;
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  onMount(() => {
+    pollTimer = setInterval(refreshList, 15000);
+  });
+
+  onDestroy(() => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+    }
+  });
 
   async function handlePageSizeChange(event: Event) {
     const target = event.currentTarget as HTMLSelectElement | null;
@@ -298,6 +274,17 @@
     params.set('order', event.detail.order);
     params.set('offset', '0');
     await goto(`/papers?${params.toString()}`);
+  }
+
+  function showToast(message: string) {
+    toastMessage = message;
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+    }
+    toastTimer = setTimeout(() => {
+      toastMessage = null;
+      toastTimer = null;
+    }, 3000);
   }
 
   async function selectEntireResult() {
@@ -474,7 +461,7 @@
 
   <PaperFilters
     values={data.params}
-    options={data.response.options}
+    options={response.options}
     on:filter={applyFilters}
     on:reset={resetFilters}
   />
@@ -482,9 +469,9 @@
   {#if showSelectAllBanner}
     <div class="bulk-banner">
       <span>All {pageIds.length} items on this page are selected.</span>
-      {#if data.response.total > pageIds.length}
+      {#if response.total > pageIds.length}
         <button type="button" on:click={selectEntireResult} disabled={bulkLoading}>
-          {bulkLoading ? 'Selecting…' : `Select all ${data.response.total} items`}
+          {bulkLoading ? 'Selecting…' : `Select all ${response.total} items`}
         </button>
       {/if}
     </div>
@@ -492,7 +479,7 @@
 
   {#if showAllAcrossBanner}
     <div class="bulk-banner info">
-      <span>All {data.response.total} items are selected.</span>
+      <span>All {response.total} items are selected.</span>
       <button type="button" on:click={clearSelection}>Clear selection</button>
     </div>
   {/if}
@@ -511,16 +498,6 @@
 
   {#if lookupError}
     <p class="error">{lookupError}</p>
-    {#if lookupFailures.length > 0}
-      <details class="error-details">
-        <summary>View failed lookups</summary>
-        <ul>
-          {#each lookupFailures as failure}
-            <li><strong>{failure.name}</strong> (#{failure.id}): {failure.error}</li>
-          {/each}
-        </ul>
-      </details>
-    {/if}
   {/if}
 
   <div class="actions">
@@ -544,14 +521,10 @@
       {researchFormOpen ? 'Close research form' : 'Save as Research Session'}
     </button>
     <button type="button" on:click={handleBatchAudit} disabled={selectedCount === 0 || loading}>
-      {loading
-        ? `Auditing…${progressTotal ? ` (${progressCurrent}/${progressTotal})` : ''}`
-        : 'Audit selected'}
+      {loading ? 'Queueing…' : 'Queue audit'}
     </button>
     <button type="button" on:click={handleBatchLookup} disabled={selectedCount === 0 || lookupLoading}>
-      {lookupLoading
-        ? `Lookup…${lookupProgressTotal ? ` (${lookupProgressCurrent}/${lookupProgressTotal})` : ''}`
-        : 'Lookup selected'}
+      {lookupLoading ? 'Queueing…' : 'Queue lookup'}
     </button>
     <button type="button" on:click={handleExport} disabled={selectedCount === 0 || exportLoading}>
       {exportLoading ? 'Exporting…' : 'Export CSV'}
@@ -644,8 +617,8 @@
   {/if}
 
   <PaperTable
-    items={data.response.items}
-    total={data.response.total}
+    items={response.items}
+    total={response.total}
     limit={pageSize}
     offset={Number(data.params.offset ?? 0)}
     on:audit={handleAudit}
@@ -660,6 +633,10 @@
     sortOrder={currentSortOrder}
     loading={loading || lookupLoading}
   />
+
+  {#if toastMessage}
+    <div class="toast" role="status" aria-live="polite">{toastMessage}</div>
+  {/if}
 </div>
 
 <style>
@@ -737,6 +714,29 @@
     background-color: #f3f4ff;
     border: 1px solid #c7d2fe;
     color: #1e3a8a;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #111827;
+    color: white;
+    padding: 0.75rem 1.25rem;
+    border-radius: 999px;
+    font-weight: 600;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.25);
+    z-index: 40;
+  }
+
+  @media (max-width: 640px) {
+    .toast {
+      left: 1rem;
+      right: 1rem;
+      transform: none;
+      text-align: center;
+    }
   }
 
   .bulk-banner.info {

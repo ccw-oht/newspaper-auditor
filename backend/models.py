@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     ARRAY,
     JSON,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -96,3 +97,51 @@ class ResearchFeature(Base):
     error = Column(Text)
 
     session = relationship("ResearchSession", back_populates="features")
+
+
+class JobQueueState(Base):
+    __tablename__ = "job_queue_state"
+
+    id = Column(Integer, primary_key=True, index=True)
+    paused = Column(Boolean, default=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_type = Column(String, nullable=False)
+    status = Column(String, default="pending")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    total_count = Column(Integer, default=0)
+    processed_count = Column(Integer, default=0)
+    payload = Column(JSON, default=dict)
+    result_summary = Column(JSON, default=dict)
+    error = Column(Text)
+
+    items = relationship("JobItem", back_populates="job", cascade="all, delete-orphan")
+
+
+class JobItem(Base):
+    __tablename__ = "job_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(Integer, ForeignKey("jobs.id", ondelete="CASCADE"))
+    paper_id = Column(Integer, ForeignKey("papers.id", ondelete="SET NULL"), index=True, nullable=True)
+    status = Column(String, default="pending")
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    error = Column(Text)
+    result = Column(JSON, default=dict)
+
+    job = relationship("Job", back_populates="items")
+    paper = relationship("Paper")
+
+    @property
+    def paper_name(self) -> str | None:
+        if self.paper is None:
+            return None
+        return self.paper.paper_name

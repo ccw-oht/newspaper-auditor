@@ -132,6 +132,65 @@ export interface LookupResult {
   error: string | null;
 }
 
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+export type JobType = 'audit' | 'lookup';
+
+export interface JobSummary {
+  id: number;
+  job_type: JobType;
+  status: JobStatus;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  total_count: number;
+  processed_count: number;
+  payload?: Record<string, unknown> | null;
+  result_summary?: Record<string, unknown> | null;
+  error?: string | null;
+}
+
+export interface JobItem {
+  id: number;
+  job_id: number;
+  paper_id: number;
+  status: JobStatus;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
+  result?: Record<string, unknown> | null;
+}
+
+export interface JobDetail extends JobSummary {
+  items: JobItem[];
+}
+
+export interface JobQueueState {
+  paused: boolean;
+}
+
+export interface JobQueueItem {
+  job_id: number;
+  job_type: JobType;
+  item_id: number;
+  paper_id: number;
+  paper_name: string | null;
+  status: JobStatus;
+}
+
+export interface JobHistoryItem {
+  job_id: number;
+  job_type: JobType;
+  job_status: JobStatus;
+  item_id: number;
+  paper_id: number;
+  paper_name: string | null;
+  status: JobStatus;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
+  result?: Record<string, unknown> | null;
+}
+
 export interface PaperListOptions {
   states: string[];
   cities: string[];

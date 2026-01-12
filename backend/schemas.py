@@ -210,6 +210,77 @@ class BulkDeleteResult(BaseModel):
     deleted: int
 
 
+class JobCreateRequest(BaseModel):
+    ids: List[int] = Field(..., description="Paper IDs to include in the job")
+
+
+class JobItemOut(BaseModel):
+    id: int
+    job_id: int
+    paper_id: int
+    paper_name: Optional[str] = None
+    status: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+
+    class Config:
+        from_attributes = True
+
+
+class JobSummaryOut(BaseModel):
+    id: int
+    job_type: str
+    status: str
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    total_count: int
+    processed_count: int
+    payload: Optional[Dict[str, Any]] = None
+    result_summary: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class JobDetailOut(JobSummaryOut):
+    items: List[JobItemOut] = Field(default_factory=list)
+
+
+class JobQueueStateOut(BaseModel):
+    paused: bool
+
+
+class JobQueueStateUpdate(BaseModel):
+    paused: bool
+
+
+class JobQueueItemOut(BaseModel):
+    job_id: int
+    job_type: str
+    item_id: int
+    paper_id: int
+    paper_name: Optional[str] = None
+    status: str
+
+
+class JobHistoryItemOut(BaseModel):
+    job_id: int
+    job_type: str
+    job_status: str
+    item_id: int
+    paper_id: int
+    paper_name: Optional[str] = None
+    status: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
+
+
 class ResearchFeatureConfig(BaseModel):
     name: str
     keywords: list[str]
