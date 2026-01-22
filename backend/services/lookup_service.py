@@ -30,7 +30,7 @@ _LOOKUP_DEBUG = os.getenv("LOOKUP_DEBUG", "").strip().lower() in {"1", "true", "
 _LOOKUP_REQUEST_DELAY_SECONDS = float(os.getenv("LOOKUP_REQUEST_DELAY_SECONDS", "0.2"))
 _LOOKUP_THROTTLE_LOCK = threading.Lock()
 _LOOKUP_NEXT_TIME = 0.0
-_LOOKUP_MAX_ATTEMPTS = int(os.getenv("LOOKUP_MAX_ATTEMPTS", "5"))
+_LOOKUP_MAX_ATTEMPTS = int(os.getenv("LOOKUP_MAX_ATTEMPTS", "3"))
 _LOOKUP_BACKOFF_SECONDS = float(os.getenv("LOOKUP_BACKOFF_SECONDS", "1.5"))
 _LOOKUP_BACKOFF_MAX_SECONDS = float(os.getenv("LOOKUP_BACKOFF_MAX_SECONDS", "12"))
 
@@ -549,57 +549,68 @@ def _fetch_contact(paper: Paper, *, throttle: bool = True) -> tuple[NewsContact,
         "Always return a valid JSON object."
     )
     contents = f"{prompt}\n\nReturn only a JSON object with the required keys."
-    model_name = "gemini-3-flash-preview"
+    model_sequence = [
+        ("gemini-2.5-flash", 1),
+        ("gemini-3-flash-preview", 1),
+    ]
     config = types.GenerateContentConfig(
         system_instruction=system_instruction,
         tools=[types.Tool(google_search=types.GoogleSearch())],
     )
     last_error: Exception | None = None
-    max_attempts = max(1, _LOOKUP_MAX_ATTEMPTS)
     response = None
     raw_text = ""
     contact: NewsContact | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config,
-            )
-            usage = getattr(response, "usage_metadata", None)
-            candidates = getattr(response, "candidates", None)
-            candidate = candidates[0] if candidates else None
-            grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
-            finish_reason = getattr(candidate, "finish_reason", None) if candidate else None
-            if _LOOKUP_DEBUG:
-                debug_payload = {
-                    "paper_id": paper.id,
-                    "usage_metadata": usage,
-                    "finish_reason": finish_reason,
-                    "web_search_queries": getattr(grounding, "web_search_queries", None) if grounding else None,
-                }
-                print(f"Lookup metadata: {json.dumps(debug_payload, default=str)}")
-            raw_text = _extract_response_text(response)
-            if _LOOKUP_DEBUG:
-                print(f"Lookup raw response for paper_id={paper.id}:\n{raw_text}")
+    model_used = None
+    for model_name, max_attempts in model_sequence:
+        max_attempts = max(1, max_attempts)
+        for attempt in range(1, max_attempts + 1):
             try:
-                contact = NewsContact.model_validate_json(raw_text)
-            except ValidationError:
-                contact = NewsContact.model_validate_json(raw_text[raw_text.find("{") : raw_text.rfind("}") + 1])
-            break
-        except Exception as exc:  # pragma: no cover - runtime-specific error handling
-            last_error = exc
-            if _LOOKUP_DEBUG:
-                print(
-                    f"Lookup attempt {attempt}/{max_attempts} failed for paper_id={paper.id}: {exc}"
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config,
                 )
-            if not _is_retryable_error(exc) or attempt >= max_attempts:
-                raise
-            backoff = min(_LOOKUP_BACKOFF_SECONDS * (2 ** (attempt - 1)), _LOOKUP_BACKOFF_MAX_SECONDS)
-            jitter = backoff * 0.25
-            time.sleep(backoff + random.uniform(0, jitter))
-    else:  # pragma: no cover - defensive
-        raise RuntimeError(f"Lookup failed after {max_attempts} attempts") from last_error
+                model_used = model_name
+                usage = getattr(response, "usage_metadata", None)
+                candidates = getattr(response, "candidates", None)
+                candidate = candidates[0] if candidates else None
+                grounding = getattr(candidate, "grounding_metadata", None) if candidate else None
+                finish_reason = getattr(candidate, "finish_reason", None) if candidate else None
+                if _LOOKUP_DEBUG:
+                    debug_payload = {
+                        "paper_id": paper.id,
+                        "usage_metadata": usage,
+                        "finish_reason": finish_reason,
+                        "web_search_queries": getattr(grounding, "web_search_queries", None) if grounding else None,
+                        "model": model_name,
+                    }
+                    print(f"Lookup metadata: {json.dumps(debug_payload, default=str)}")
+                raw_text = _extract_response_text(response)
+                if _LOOKUP_DEBUG:
+                    print(f"Lookup raw response for paper_id={paper.id}:\n{raw_text}")
+                try:
+                    contact = NewsContact.model_validate_json(raw_text)
+                except ValidationError:
+                    contact = NewsContact.model_validate_json(raw_text[raw_text.find("{") : raw_text.rfind("}") + 1])
+                break
+            except Exception as exc:  # pragma: no cover - runtime-specific error handling
+                last_error = exc
+                if _LOOKUP_DEBUG:
+                    print(
+                        f"Lookup attempt {attempt}/{max_attempts} failed for paper_id={paper.id} model={model_name}: {exc}"
+                    )
+                if not _is_retryable_error(exc) or attempt >= max_attempts:
+                    if model_name != model_sequence[-1][0]:
+                        break
+                    raise
+                backoff = min(_LOOKUP_BACKOFF_SECONDS * (2 ** (attempt - 1)), _LOOKUP_BACKOFF_MAX_SECONDS)
+                jitter = backoff * 0.25
+                time.sleep(backoff + random.uniform(0, jitter))
+        if contact is not None:
+            break
+    if contact is None:
+        raise RuntimeError("Lookup failed after model fallbacks") from last_error
     usage = getattr(response, "usage_metadata", None) if response else None
     candidates = getattr(response, "candidates", None) if response else None
     candidate = candidates[0] if candidates else None
@@ -626,6 +637,8 @@ def _fetch_contact(paper: Paper, *, throttle: bool = True) -> tuple[NewsContact,
         logs["web_search_queries"] = queries
     if finish_reason is not None:
         logs["finish_reason"] = finish_reason
+    if model_used:
+        logs["model_used"] = model_used
     return contact, logs
 
 

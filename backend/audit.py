@@ -16,6 +16,10 @@ except ModuleNotFoundError:
         import brotlicffi as brotli  # type: ignore[import]
     except ModuleNotFoundError:
         brotli = None
+try:
+    from playwright.sync_api import sync_playwright  # type: ignore[import]
+except ModuleNotFoundError:
+    sync_playwright = None
 
 # Keywords/signals
 paywall_keywords = [
@@ -219,6 +223,20 @@ def sanitize_homepage_snapshot(
     return cleaned, False
 
 
+def _inject_base_href(html: str, base_url: str) -> str:
+    if "<base" in html.lower():
+        return html
+    lower_html = html.lower()
+    head_index = lower_html.find("<head")
+    if head_index == -1:
+        return f'<base href="{base_url}">\n{html}'
+    head_close = lower_html.find(">", head_index)
+    if head_close == -1:
+        return html
+    insert_at = head_close + 1
+    return f'{html[:insert_at]}<base href="{base_url}">{html[insert_at:]}'
+
+
 # Helper: fetch a URL safely, capturing status information
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -284,6 +302,9 @@ MANUAL_REVIEW_STATUSES = {
 }
 
 _AUDIT_DEBUG = os.getenv("AUDIT_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+_AUDIT_PLAYWRIGHT_FALLBACK = os.getenv("AUDIT_PLAYWRIGHT_FALLBACK", "").strip().lower() in {"1", "true", "yes", "on"}
+_AUDIT_PLAYWRIGHT_TIMEOUT_MS = int(os.getenv("AUDIT_PLAYWRIGHT_TIMEOUT_MS", "15000"))
+_AUDIT_PLAYWRIGHT_ONLY = os.getenv("AUDIT_PLAYWRIGHT_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}
 
 REQUEST_PAUSE_SECONDS = 0.75
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
@@ -312,6 +333,41 @@ def _is_timeout_error(status_code: int | None, error_message: str | None) -> boo
         return False
     lowered = error_message.lower()
     return ("timed out" in lowered) or ("timeout" in lowered)
+
+
+def _should_try_playwright(status_code: int | None, error_message: str | None) -> bool:
+    if status_code in {401, 403, 429}:
+        return True
+    if not error_message:
+        return False
+    lowered = error_message.lower()
+    return "connection reset" in lowered or "connection aborted" in lowered or "tls" in lowered
+
+
+def _fetch_with_playwright(url: str) -> tuple[str | None, int | None, str | None]:
+    if sync_playwright is None:
+        return None, None, "Playwright not installed"
+    if _AUDIT_DEBUG:
+        print(f"[audit] playwright fallback start url={url}")
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.firefox.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+            response = page.goto(url, timeout=_AUDIT_PLAYWRIGHT_TIMEOUT_MS, wait_until="domcontentloaded")
+            content = page.content()
+            status = response.status if response else None
+            browser.close()
+            if _AUDIT_DEBUG:
+                print(f"[audit] playwright fallback ok url={url} status={status} bytes={len(content)}")
+            return content, status or 200, None
+    except Exception as exc:  # pragma: no cover - runtime-specific
+        if _AUDIT_DEBUG:
+            print(f"[audit] playwright fallback error url={url} error={exc}")
+        message = str(exc)
+        if "Executable doesn't exist" in message or "browser_type.launch" in message:
+            return None, None, "Playwright browsers not installed (run `playwright install`)"
+        return None, None, str(exc)
 
 
 def _prefer_https(url: str) -> str:
@@ -455,7 +511,10 @@ def check_sitemap(base_url):
 
     for path in sitemap_paths:
         sitemap_url = base_url.rstrip("/") + path
-        xml_text, status_code, _ = fetch_url(sitemap_url, timeout=12)
+        if _AUDIT_PLAYWRIGHT_ONLY:
+            xml_text, status_code, _ = _fetch_with_playwright(sitemap_url)
+        else:
+            xml_text, status_code, _ = fetch_url(sitemap_url, timeout=12)
         if status_code != 200 or not xml_text:
             continue
         used = True
@@ -513,7 +572,10 @@ def check_rss(base_url):
         if candidate in seen:
             continue
         seen.add(candidate)
-        xml_text, status_code, _ = fetch_url(candidate, timeout=8)
+        if _AUDIT_PLAYWRIGHT_ONLY:
+            xml_text, status_code, _ = _fetch_with_playwright(candidate)
+        else:
+            xml_text, status_code, _ = fetch_url(candidate, timeout=8)
         if status_code != 200 or not xml_text:
             continue
 
@@ -975,7 +1037,13 @@ def quick_audit(url: str, *, strict: bool = False):
     if not url.startswith("http"):
         url = "http://" + url
 
-    def _attempt_fetch(target: str, retries: int, backoff: float, allow_brotli: bool = False):
+    def _attempt_fetch(
+        target: str,
+        retries: int,
+        backoff: float,
+        allow_brotli: bool = False,
+        header_variants: list[dict[str, str]] | None = None,
+    ):
         try:
             return fetch_url(
                 target,
@@ -983,6 +1051,7 @@ def quick_audit(url: str, *, strict: bool = False):
                 backoff=backoff,
                 raise_on_timeout=strict,
                 allow_brotli=allow_brotli,
+                header_variants=header_variants,
             )
         except HomepageFetchTimeoutError as exc:
             return None, exc.status_code, exc.detail
@@ -991,24 +1060,56 @@ def quick_audit(url: str, *, strict: bool = False):
     base_url_for_aux = fetch_target
     used_amp_variant = False
     used_brotli_variant = False
+    blocked_for_aux = False
 
-    homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 3, 2.0, False)
+    fast_fallback = _AUDIT_PLAYWRIGHT_FALLBACK
+    primary_retries = 0 if fast_fallback else 3
+    primary_variants = [DEFAULT_HEADERS] if fast_fallback else None
+    use_playwright_only = _AUDIT_PLAYWRIGHT_ONLY
+    if use_playwright_only:
+        homepage_html, homepage_status, homepage_error = _fetch_with_playwright(fetch_target)
+    else:
+        homepage_html, homepage_status, homepage_error = _attempt_fetch(
+            fetch_target,
+            primary_retries,
+            2.0,
+            False,
+            header_variants=primary_variants,
+        )
     if _AUDIT_DEBUG:
         print(f"[audit] homepage fetch status={homepage_status} error={homepage_error}")
-    if homepage_html is None and homepage_status in REDIRECT_STATUS_CODES:
+    if homepage_status in {401, 403, 429}:
+        blocked_for_aux = True
+        if homepage_html is not None:
+            homepage_html = None
+        if not homepage_error:
+            homepage_error = f"HTTP {homepage_status}"
+    if homepage_html is None and homepage_status in REDIRECT_STATUS_CODES and not use_playwright_only:
         upgraded = _prefer_https(fetch_target)
         if upgraded != fetch_target:
             fetch_target = upgraded
             base_url_for_aux = fetch_target
-            homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 2, 2.0, False)
+            homepage_html, homepage_status, homepage_error = _attempt_fetch(
+                fetch_target,
+                2,
+                2.0,
+                False,
+                header_variants=None,
+            )
             if _AUDIT_DEBUG:
                 print(f"[audit] https retry status={homepage_status} error={homepage_error}")
 
-    if homepage_html is None:
+    if homepage_html is None and not (_AUDIT_PLAYWRIGHT_FALLBACK and homepage_status == 403) and not use_playwright_only:
         amp_candidate = _ensure_amp_variant(fetch_target)
         if amp_candidate != fetch_target:
             fetch_target = amp_candidate
-            amp_html, amp_status, amp_error = _attempt_fetch(fetch_target, 2, 2.5, False)
+            amp_html, amp_status, amp_error = _attempt_fetch(
+                fetch_target,
+                2,
+                2.5,
+                False,
+                header_variants=None,
+            )
             if amp_html:
                 homepage_html = amp_html
                 homepage_status = amp_status
@@ -1020,9 +1121,15 @@ def quick_audit(url: str, *, strict: bool = False):
             if _AUDIT_DEBUG:
                 print(f"[audit] amp retry status={homepage_status} error={homepage_error}")
 
-    if homepage_html is None:
+    if homepage_html is None and not (_AUDIT_PLAYWRIGHT_FALLBACK and homepage_status == 403) and not use_playwright_only:
         brotli_candidate = _prefer_https(url)
-        homepage_html, homepage_status, homepage_error = _attempt_fetch(brotli_candidate, 2, 3.0, True)
+        homepage_html, homepage_status, homepage_error = _attempt_fetch(
+            brotli_candidate,
+            2,
+            3.0,
+            True,
+            header_variants=None,
+        )
         if homepage_html:
             fetch_target = brotli_candidate
             base_url_for_aux = fetch_target
@@ -1030,16 +1137,37 @@ def quick_audit(url: str, *, strict: bool = False):
         if _AUDIT_DEBUG:
             print(f"[audit] brotli retry status={homepage_status} error={homepage_error}")
 
+    if (
+        homepage_html is None
+        and _AUDIT_PLAYWRIGHT_FALLBACK
+        and not use_playwright_only
+        and _should_try_playwright(homepage_status, homepage_error)
+    ):
+        if sync_playwright is None:
+            if _AUDIT_DEBUG:
+                print("[audit] playwright fallback skipped: Playwright not installed")
+            homepage_error = "Playwright fallback unavailable: Playwright not installed"
+        else:
+            homepage_html, homepage_status, homepage_error = _fetch_with_playwright(fetch_target)
+            if _AUDIT_DEBUG:
+                print(f"[audit] playwright fallback status={homepage_status} error={homepage_error}")
+
     time.sleep(REQUEST_PAUSE_SECONDS)
     if strict and homepage_html is None and _is_timeout_error(homepage_status, homepage_error):
         raise HomepageFetchTimeoutError(fetch_target, homepage_error, homepage_status)
-    if _AUDIT_DEBUG:
-        print(f"[audit] sitemap check url={base_url_for_aux}")
-    sitemap_data = check_sitemap(base_url_for_aux)
-    time.sleep(REQUEST_PAUSE_SECONDS)
-    if _AUDIT_DEBUG:
-        print(f"[audit] rss check url={base_url_for_aux}")
-    rss_data = check_rss(base_url_for_aux)
+    if blocked_for_aux:
+        if _AUDIT_DEBUG:
+            print(f"[audit] skipping sitemap/rss due to access restrictions url={base_url_for_aux}")
+        sitemap_data = {"used": False, "notices": False, "urls": []}
+        rss_data = {"feed_found": False, "notices": False, "urls": []}
+    else:
+        if _AUDIT_DEBUG:
+            print(f"[audit] sitemap check url={base_url_for_aux}")
+        sitemap_data = check_sitemap(base_url_for_aux)
+        time.sleep(REQUEST_PAUSE_SECONDS)
+        if _AUDIT_DEBUG:
+            print(f"[audit] rss check url={base_url_for_aux}")
+        rss_data = check_rss(base_url_for_aux)
     chain_value, chain_sources, chain_notes = detect_chain(homepage_html)
     cms_platform, cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)
 
@@ -1070,6 +1198,8 @@ def quick_audit(url: str, *, strict: bool = False):
     if used_brotli_variant:
         all_notes.append("Used Brotli fallback to decode homepage HTML")
 
+    if homepage_html and base_url_for_aux:
+        homepage_html = _inject_base_href(homepage_html, base_url_for_aux)
     sanitized_homepage_html, snapshot_truncated = sanitize_homepage_snapshot(homepage_html)
 
     if homepage_html is None:
