@@ -185,6 +185,23 @@
     return value != null ? String(value) : null;
   }
 
+  function formatNotes(value: string | null): string[] {
+    if (!value) return [];
+    return value
+      .split('|')
+      .map((chunk) => chunk.trim())
+      .filter(Boolean)
+      ;
+  }
+
+  function auditErrorText(): string | null {
+    const error = auditStatusValue('error');
+    if (!error) return null;
+    const notes = auditStatusValue('audit_notes');
+    if (notes && error.trim() === notes.trim()) return null;
+    return error;
+  }
+
   function setContactExtrasFromPaper() {
     const value = safeString((paper.extra_data?.contact_lookup as Record<string, unknown> | undefined)?.primary_contact);
     primaryContact = value ?? '';
@@ -744,10 +761,24 @@
           <h4>Audit</h4>
           <p class="meta">Status: {auditStatusValue('status') ?? '—'}</p>
           <p class="meta">Completed: {formatTimestamp(auditStatusValue('completed_at'))}</p>
-          {#if auditStatusValue('error')}
-            <pre>{auditStatusValue('error')}</pre>
-          {:else}
+          {#if auditStatusValue('audit_sources')}
+            <p class="meta">Sources: {auditStatusValue('audit_sources')}</p>
+          {/if}
+          {#if auditErrorText()}
+            <pre class="log-block">{auditErrorText()}</pre>
+          {/if}
+          {#if formatNotes(auditStatusValue('audit_notes')).length > 0}
+            <ul class="job-log-list">
+              {#each formatNotes(auditStatusValue('audit_notes')) as note}
+                <li>{note}</li>
+              {/each}
+            </ul>
+          {/if}
+          {#if !auditErrorText() && formatNotes(auditStatusValue('audit_notes')).length === 0}
             <p class="empty">No audit errors recorded.</p>
+          {/if}
+          {#if auditStatusValue('error_note')}
+            <pre class="log-block">{auditStatusValue('error_note')}</pre>
           {/if}
         </div>
         <div class="job-log">
@@ -850,10 +881,28 @@
     margin: 0.2rem 0 0;
     color: #4b5563;
     font-size: 0.85rem;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .job-log pre {
     margin-top: 0.6rem;
+  }
+
+  .job-log .log-block {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .job-log-list {
+    margin: 0.4rem 0 0;
+    padding-left: 1.1rem;
+    color: #4b5563;
+    font-size: 0.85rem;
+  }
+
+  .job-log-list li {
+    margin: 0.2rem 0;
   }
 
   .header-actions {

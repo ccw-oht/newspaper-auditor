@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 from pathlib import Path
 
@@ -241,6 +242,10 @@ MODERN_CHROME_HEADERS = {
     "Sec-Ch-Ua": '"Not/A)Brand";v="99", "Google Chrome";v="125", "Chromium";v="125"',
     "Sec-Ch-Ua-Mobile": "?0",
     "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
 }
 
@@ -253,10 +258,21 @@ MODERN_FIREFOX_HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
+MODERN_SAFARI_HEADERS = {
+    **DEFAULT_HEADERS,
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_0) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+        "Version/17.4 Safari/605.1.15"
+    ),
+    "Upgrade-Insecure-Requests": "1",
+}
+
 BROWSER_HEADER_VARIANTS = [
     DEFAULT_HEADERS,
     MODERN_CHROME_HEADERS,
     MODERN_FIREFOX_HEADERS,
+    MODERN_SAFARI_HEADERS,
 ]
 
 REQUEST_PAUSE_SECONDS = 0.75
@@ -266,6 +282,8 @@ MANUAL_REVIEW_STATUSES = {
     "manual review (timeout)",
     "manual review (error)",
 }
+
+_AUDIT_DEBUG = os.getenv("AUDIT_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 REQUEST_PAUSE_SECONDS = 0.75
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
@@ -334,6 +352,8 @@ def fetch_url(
     raise_on_timeout: bool = False,
     allow_brotli: bool = False,
 ):
+    if _AUDIT_DEBUG:
+        print(f"[audit] fetch_url start url={url} timeout={timeout} retries={retries} allow_brotli={allow_brotli}")
     base_headers = headers or DEFAULT_HEADERS
     if header_variants is None:
         raw_variants = BROWSER_HEADER_VARIANTS if headers is None else [base_headers]
@@ -352,6 +372,11 @@ def fetch_url(
         current_url = url
         for attempt in range(retries + 1):
             try:
+                if _AUDIT_DEBUG:
+                    print(
+                        f"[audit] request attempt={attempt + 1}/{retries + 1} "
+                        f"variant={variant_index + 1}/{len(normalized_variants)} url={current_url}"
+                    )
                 resp = requests.get(current_url, timeout=timeout, headers=variant_headers, allow_redirects=True)
                 if resp.status_code == 403 and current_url.startswith("http://"):
                     # retry once with https if forbidden over http
@@ -360,6 +385,8 @@ def fetch_url(
                     continue
                 if resp.status_code == 403:
                     last_error = f"HTTP 403 for {current_url}"
+                    if _AUDIT_DEBUG:
+                        print(f"[audit] fetch blocked {last_error}")
                     if attempt < retries:
                         time.sleep(backoff * (attempt + 1))
                         continue
@@ -368,6 +395,8 @@ def fetch_url(
                     return None, resp.status_code, last_error
                 if resp.status_code == 429:
                     last_error = f"HTTP 429 for {current_url}"
+                    if _AUDIT_DEBUG:
+                        print(f"[audit] fetch throttled {last_error}")
                     if attempt < retries:
                         time.sleep(backoff * (attempt + 1))
                         continue
@@ -380,24 +409,36 @@ def fetch_url(
                     if encoding_header == "br":
                         if not allow_brotli or brotli is None:
                             last_error = "Received Brotli-compressed response but Brotli support unavailable"
+                            if _AUDIT_DEBUG:
+                                print(f"[audit] brotli unavailable for url={current_url}")
                             return None, resp.status_code, last_error
                         try:
                             content = brotli.decompress(content)
                         except Exception as exc:  # pragma: no cover - depends on remote data
                             last_error = f"Brotli decode failed: {exc}"
+                            if _AUDIT_DEBUG:
+                                print(f"[audit] brotli decode failed url={current_url} error={exc}")
                             return None, resp.status_code, last_error
                     text = _decode_html_bytes(content, resp.encoding or getattr(resp, "apparent_encoding", None))
+                    if _AUDIT_DEBUG:
+                        print(f"[audit] fetch ok url={current_url} bytes={len(content)}")
                     return text, resp.status_code, None
                 last_error = f"HTTP {resp.status_code}"
+                if _AUDIT_DEBUG:
+                    print(f"[audit] fetch failed status={resp.status_code} url={current_url}")
                 return None, resp.status_code, None
             except requests.exceptions.Timeout as exc:
                 last_error = str(exc)
+                if _AUDIT_DEBUG:
+                    print(f"[audit] fetch timeout url={current_url} error={exc}")
                 if raise_on_timeout:
                     raise HomepageFetchTimeoutError(current_url, last_error) from exc
                 if attempt == retries:
                     return None, None, last_error
             except Exception as exc:
                 last_error = str(exc)
+                if _AUDIT_DEBUG:
+                    print(f"[audit] fetch error url={current_url} error={exc}")
                 if attempt == retries:
                     return None, None, last_error
         else:
@@ -900,6 +941,8 @@ def detect_responsive(homepage_html):
 # --- Main Audit ---
 
 def quick_audit(url: str, *, strict: bool = False):
+    if _AUDIT_DEBUG:
+        print(f"[audit] quick_audit start url={url} strict={strict}")
     audit = {
         "Has PDF Edition?": "Manual Review",
         "PDF-Only?": "Manual Review",
@@ -950,12 +993,16 @@ def quick_audit(url: str, *, strict: bool = False):
     used_brotli_variant = False
 
     homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 3, 2.0, False)
+    if _AUDIT_DEBUG:
+        print(f"[audit] homepage fetch status={homepage_status} error={homepage_error}")
     if homepage_html is None and homepage_status in REDIRECT_STATUS_CODES:
         upgraded = _prefer_https(fetch_target)
         if upgraded != fetch_target:
             fetch_target = upgraded
             base_url_for_aux = fetch_target
             homepage_html, homepage_status, homepage_error = _attempt_fetch(fetch_target, 2, 2.0, False)
+            if _AUDIT_DEBUG:
+                print(f"[audit] https retry status={homepage_status} error={homepage_error}")
 
     if homepage_html is None:
         amp_candidate = _ensure_amp_variant(fetch_target)
@@ -970,6 +1017,8 @@ def quick_audit(url: str, *, strict: bool = False):
             else:
                 homepage_status = amp_status
                 homepage_error = amp_error
+            if _AUDIT_DEBUG:
+                print(f"[audit] amp retry status={homepage_status} error={homepage_error}")
 
     if homepage_html is None:
         brotli_candidate = _prefer_https(url)
@@ -978,12 +1027,18 @@ def quick_audit(url: str, *, strict: bool = False):
             fetch_target = brotli_candidate
             base_url_for_aux = fetch_target
             used_brotli_variant = True
+        if _AUDIT_DEBUG:
+            print(f"[audit] brotli retry status={homepage_status} error={homepage_error}")
 
     time.sleep(REQUEST_PAUSE_SECONDS)
     if strict and homepage_html is None and _is_timeout_error(homepage_status, homepage_error):
         raise HomepageFetchTimeoutError(fetch_target, homepage_error, homepage_status)
+    if _AUDIT_DEBUG:
+        print(f"[audit] sitemap check url={base_url_for_aux}")
     sitemap_data = check_sitemap(base_url_for_aux)
     time.sleep(REQUEST_PAUSE_SECONDS)
+    if _AUDIT_DEBUG:
+        print(f"[audit] rss check url={base_url_for_aux}")
     rss_data = check_rss(base_url_for_aux)
     chain_value, chain_sources, chain_notes = detect_chain(homepage_html)
     cms_platform, cms_vendor, cms_sources, cms_notes = detect_cms(homepage_html, sitemap_data)

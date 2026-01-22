@@ -58,6 +58,16 @@ def clear_audit_results(paper_id: int, db: Session = Depends(get_db)):
     paper.chain_owner = None
     paper.cms_platform = None
     paper.cms_vendor = None
+    extra = dict(paper.extra_data or {})
+    job_status = extra.get("job_status")
+    if isinstance(job_status, dict) and "audit" in job_status:
+        job_status = dict(job_status)
+        job_status.pop("audit", None)
+        if job_status:
+            extra["job_status"] = job_status
+        else:
+            extra.pop("job_status", None)
+        paper.extra_data = extra
     db.commit()
     return Response(status_code=204)
 

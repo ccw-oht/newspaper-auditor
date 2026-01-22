@@ -54,6 +54,10 @@ def _process_audit(db: Session, item: JobItem) -> tuple[Optional[dict], Optional
     }
     if results is None and error_note:
         return payload, error_note
+    if results and not error_note:
+        notes = results.get("Audit Notes") if isinstance(results, dict) else None
+        if isinstance(notes, str) and "Homepage fetch failed" in notes:
+            return payload, notes
     return payload, None
 
 
@@ -129,13 +133,21 @@ def _process_job_item(job_id: int, job_type: str, item_id: int) -> None:
             if paper:
                 extra = dict(paper.extra_data or {})
                 job_status = dict(extra.get("job_status") or {})
-                job_status[job_type] = {
+                status_payload = {
                     "status": item.status,
                     "error": item.error,
                     "job_id": job_id,
                     "item_id": item.id,
                     "completed_at": item.completed_at.isoformat(),
                 }
+                if job_type == "audit" and payload:
+                    results = payload.get("results") if isinstance(payload, dict) else None
+                    if isinstance(results, dict):
+                        status_payload["audit_notes"] = results.get("Audit Notes")
+                        status_payload["audit_sources"] = results.get("Audit Sources")
+                        status_payload["homepage_html_present"] = bool(results.get("Homepage HTML"))
+                    status_payload["error_note"] = payload.get("error_note") if isinstance(payload, dict) else None
+                job_status[job_type] = status_payload
                 extra["job_status"] = job_status
                 paper.extra_data = extra
 
