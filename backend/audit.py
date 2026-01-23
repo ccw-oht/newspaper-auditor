@@ -160,6 +160,7 @@ article_class_keywords = [
 cms_platform_signatures = [
     ("Creative Circle", ["creativecircle", "circle-media", "circleid", "creativecirclecdn"]),
     ("BLOX Digital", ["tncms", "bloximages", "townnews", "bloxcms"]),
+    ("Joomla", ["joomla", "joomla!", "jooomla-"]),
     ("WordPress", ["wp-content", "wp-includes", "wordpress", "wp-json", "wp-sitemap"]),
     ("Drupal", ["drupal.settings", "drupal-settings-json", "drupal"]),
     ("Arc XP", ["arc-cdn", "arcpublishing", "thearc", "arc publishing", "washpost"]),
@@ -178,6 +179,7 @@ cms_platform_signatures = [
 
 cms_vendor_signatures = [
     ("Creative Circle", ["creativecircle", "circle-media", "circleid", "creativecirclecdn"]),
+    ("Joomla", ["joomla", "joomla!", "jooomla-"]),
     ("ePublishing", ["epublishing", "epubcorp", "epublishing.com", "cld.bz", "ellingtoncms"]),
     ("eType", ["etype.services", "etype services", "etype1"]),
     ("Lion's Light", ["lionslight", "lion's light", "lions-light"]),
@@ -718,6 +720,7 @@ def detect_cms(homepage_html, sitemap_data):
         implied_platforms = {
             "Creative Circle": "Creative Circle",
             "BLOX": "BLOX Digital",
+            "Joomla": "Joomla",
             "Gannett": "Presto",
             "eType": "eType",
             "Arc Publishing": "Arc XP",
