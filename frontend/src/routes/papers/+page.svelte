@@ -3,7 +3,7 @@
   import PaperFilters from '$components/PaperFilters.svelte';
   import type { FilterValues } from '$lib/types';
   import PaperTable from '$components/PaperTable.svelte';
-  import { enqueueAuditJob, enqueueLookupJob, fetchPaperIds, exportPapers, deletePapers, createResearchSession, fetchPapers } from '$lib/api';
+  import { enqueueAuditJob, enqueueLookupJob, fetchActiveJobs, fetchPaperIds, exportPapers, deletePapers, createResearchSession, fetchPapers } from '$lib/api';
   import type { PaperListParams, PaperListResponse } from '$lib/types';
   import { goto, invalidateAll } from '$app/navigation';
   import { browser } from '$app/environment';
@@ -28,6 +28,8 @@
   let response = data.response;
   let lastDataResponse = data.response;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let pollInFlight = false;
+  let queueActive = false;
   let currentSortField: string = 'paper_name';
   let currentSortOrder: 'asc' | 'desc' = 'asc';
   let allSelectedAcross = false;
@@ -247,8 +249,26 @@
     }
   }
 
+  async function pollUpdates() {
+    if (!browser || pollInFlight) return;
+    if (document.visibilityState !== 'visible') return;
+    pollInFlight = true;
+    try {
+      const jobs = await fetchActiveJobs();
+      const nextActive = jobs.length > 0;
+      if (nextActive || queueActive) {
+        await refreshList();
+      }
+      queueActive = nextActive;
+    } catch (error) {
+      console.error(error);
+    } finally {
+      pollInFlight = false;
+    }
+  }
+
   onMount(() => {
-    pollTimer = setInterval(refreshList, 15000);
+    pollTimer = setInterval(pollUpdates, 3000);
   });
 
   onDestroy(() => {
@@ -769,11 +789,6 @@
   .error-details summary {
     cursor: pointer;
     font-weight: 600;
-  }
-
-  .error-details ul {
-    margin: 0.5rem 0 0;
-    padding-left: 1.25rem;
   }
 
   .research-form {

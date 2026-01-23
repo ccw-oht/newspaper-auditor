@@ -1,7 +1,8 @@
 <script lang="ts">
   /* eslint-env browser */
   import { goto, invalidateAll } from '$app/navigation';
-  import { enqueueAuditJob, enqueueLookupJob, updatePaper, fetchPaperDetail, clearAuditResults } from '$lib/api';
+  import { onDestroy, onMount } from 'svelte';
+  import { enqueueAuditJob, enqueueLookupJob, fetchActiveJobItems, fetchActiveJobs, updatePaper, fetchPaperDetail, clearAuditResults } from '$lib/api';
   import type { PaperDetail, AuditSummary } from '$lib/types';
   import { formatRelativeTime } from '$lib/formatters';
   import { paperFilterQuery } from '$lib/stores/paperFilters';
@@ -18,6 +19,10 @@
   let overrideError: string | null = null;
   let toastMessage: string | null = null;
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let pollInFlight = false;
+  let queueActive = false;
+  let paperJobActive = false;
   let selectedAuditId = paper.latest_audit?.id ?? null;
   let selectedAudit: PaperDetail['audits'][number] | null = paper.audits[0] ?? null;
   let currentAudit: (PaperDetail['audits'][number] & { overrides?: Record<string, string | null | undefined> | null }) | (AuditSummary & { overrides?: Record<string, string | null | undefined> | null }) | null = paper.latest_audit ?? selectedAudit;
@@ -185,6 +190,52 @@
     return value != null ? String(value) : null;
   }
 
+  async function refreshDetail() {
+    try {
+      const previousLatestId = paper.latest_audit?.id ?? null;
+      const refreshed = await fetchPaperDetail(paper.id);
+      paper = refreshed;
+      form = buildFormValues(paper);
+      setContactExtrasFromPaper();
+      overrideForm = buildOverrideForm(paper.audit_overrides ?? paper.latest_audit?.overrides ?? null);
+      if (selectedAuditId === null || selectedAuditId === previousLatestId) {
+        selectedAuditId = paper.latest_audit?.id ?? null;
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  async function pollUpdates() {
+    if (pollInFlight) return;
+    if (document.visibilityState !== 'visible') return;
+    pollInFlight = true;
+    try {
+      const [jobs, items] = await Promise.all([fetchActiveJobs(), fetchActiveJobItems()]);
+      const nextActive = jobs.length > 0;
+      const nextPaperActive = items.some((item) => item.paper_id === paper.id);
+      if (nextPaperActive || paperJobActive || nextActive || queueActive) {
+        await refreshDetail();
+      }
+      queueActive = nextActive;
+      paperJobActive = nextPaperActive;
+    } catch (error) {
+      console.error(error);
+    } finally {
+      pollInFlight = false;
+    }
+  }
+
+  onMount(() => {
+    pollTimer = setInterval(pollUpdates, 3000);
+  });
+
+  onDestroy(() => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+    }
+  });
+
   function formatNotes(value: string | null): string[] {
     if (!value) return [];
     return value
@@ -237,6 +288,8 @@
           social_media_links: socialLinks
         };
         payload.extra_data = { contact_lookup: lookupPayload };
+      } else if (lookupInfo) {
+        payload.extra_data = { contact_lookup: null, job_status: { lookup: null } };
       }
       const updated = await updatePaper(paper.id, payload);
       paper = updated;
@@ -299,6 +352,22 @@
       lookupError = error instanceof Error ? error.message : 'Failed to run lookup';
     } finally {
       lookingUp = false;
+    }
+  }
+
+  async function clearLookupData() {
+    const confirmed = window.confirm('Clear the latest lookup data for this paper?');
+    if (!confirmed) return;
+    try {
+      const updated = await updatePaper(paper.id, {
+        extra_data: { contact_lookup: null, job_status: { lookup: null } }
+      });
+      paper = updated;
+      setContactExtrasFromPaper();
+      lookupError = null;
+    } catch (error) {
+      console.error(error);
+      window.alert('Failed to clear lookup data');
     }
   }
 
@@ -609,6 +678,11 @@
         {/if}
         {#if lookupError}
           <p class="error">{lookupError}</p>
+        {/if}
+        {#if lookupInfo}
+          <button type="button" class="audit secondary" on:click={clearLookupData}>
+            Clear lookup data
+          </button>
         {/if}
       </div>
 

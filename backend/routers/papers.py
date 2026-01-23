@@ -1044,8 +1044,28 @@ def update_paper(
         extra_value = updates["extra_data"]
         if extra_value is None:
             paper.extra_data = None
+        elif isinstance(extra_value, dict):
+            merged = dict(paper.extra_data or {})
+            for key, value in extra_value.items():
+                if value is None:
+                    merged.pop(key, None)
+                elif key == "job_status" and isinstance(value, dict):
+                    current_status = merged.get("job_status")
+                    status_merged = dict(current_status) if isinstance(current_status, dict) else {}
+                    for status_key, status_value in value.items():
+                        if status_value is None:
+                            status_merged.pop(status_key, None)
+                        else:
+                            status_merged[status_key] = status_value
+                    if status_merged:
+                        merged[key] = status_merged
+                    else:
+                        merged.pop(key, None)
+                else:
+                    merged[key] = value
+            paper.extra_data = merged or None
         else:
-            paper.extra_data = {**(paper.extra_data or {}), **extra_value}
+            raise HTTPException(status_code=400, detail="extra_data must be an object or null")
 
     if "audit_overrides" in updates:
         overrides_value = updates["audit_overrides"]
