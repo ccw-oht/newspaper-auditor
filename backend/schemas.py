@@ -20,6 +20,10 @@ class AuditOut(BaseModel):
     chain_owner: Optional[str] = None
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
+    privacy_summary: Optional[str] = None
+    privacy_score: Optional[int] = None
+    privacy_flags: Optional[Dict[str, Any]] = None
+    privacy_features: Optional[List[Dict[str, Any]]] = None
 
     class Config:
         from_attributes = True
@@ -79,6 +83,10 @@ class AuditSummary(BaseModel):
     chain_owner: Optional[str] = None
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
+    privacy_summary: Optional[str] = None
+    privacy_score: Optional[int] = None
+    privacy_flags: Optional[Dict[str, Any]] = None
+    privacy_features: Optional[List[Dict[str, Any]]] = None
     overrides: Optional[Dict[str, Any]] = None
 
 

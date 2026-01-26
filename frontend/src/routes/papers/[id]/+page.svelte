@@ -128,6 +128,10 @@
         .map((item) => item.trim())
         .filter(Boolean)
     : [];
+  $: privacySummary = currentAudit?.privacy_summary ?? null;
+  $: privacyScore = currentAudit?.privacy_score ?? null;
+  $: privacyFlags = (currentAudit?.privacy_flags as Record<string, unknown> | undefined) ?? null;
+  $: privacyFeatures = Array.isArray(currentAudit?.privacy_features) ? currentAudit?.privacy_features : [];
 
   function statusClass(key: string, value: string | null | undefined) {
     const normalized = (value ?? '').toString().trim().toLowerCase();
@@ -164,6 +168,34 @@
   function formatTimestamp(value: string | null | undefined): string {
     if (!value) return '—';
     return new Date(value).toLocaleString();
+  }
+
+  function formatLabel(value: string): string {
+    return value
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  function featureText(feature: Record<string, unknown>, key: string): string | null {
+    const value = feature[key];
+    if (typeof value === 'string') return value;
+    return value != null ? String(value) : null;
+  }
+
+  function privacyFlagClass(key: string, value: unknown): string {
+    const normalized = key.trim().toLowerCase();
+    const isTrue = Boolean(value);
+    if (normalized === 'has_consent_tool') {
+      return isTrue ? 'good' : 'warn';
+    }
+    return isTrue ? 'bad' : 'good';
+  }
+
+  function privacyScoreClass(value: number | null): string {
+    if (value == null) return 'neutral';
+    if (value <= 20) return 'good';
+    if (value <= 50) return 'warn';
+    return 'bad';
   }
 
   function hasFailedAudit(): boolean {
@@ -769,6 +801,45 @@
               </ul>
             {/if}
           </div>
+
+          <div class="privacy">
+            <h4>Privacy signals</h4>
+            <div class="privacy-meta">
+              <div>
+                <span class="meta-label">Score</span>
+                <span class={`meta-value privacy-score ${privacyScoreClass(privacyScore)}`}>{privacyScore ?? '—'}</span>
+              </div>
+              <div>
+                <span class="meta-label">Summary</span>
+                <span class="meta-value">{privacySummary ?? '—'}</span>
+              </div>
+            </div>
+
+            {#if privacyFlags}
+              <div class="badges">
+                {#each Object.entries(privacyFlags) as [key, value]}
+                  <span class={`badge privacy ${privacyFlagClass(key, value)}`}>{formatLabel(key)}: {value ? 'Yes' : 'No'}</span>
+                {/each}
+              </div>
+            {/if}
+
+            {#if privacyFeatures.length === 0}
+              <p class="empty">No privacy signals detected.</p>
+            {:else}
+              <ul class="privacy-list">
+                {#each privacyFeatures as feature}
+                  <li>
+                    <strong>{featureText(feature, 'vendor') ?? 'Unknown vendor'}</strong>
+                    <span class="privacy-detail">{formatLabel(featureText(feature, 'category') ?? 'unknown')}</span>
+                    <span class="privacy-detail">{formatLabel(featureText(feature, 'confidence') ?? 'low')}</span>
+                    {#if featureText(feature, 'evidence')}
+                      <span class="privacy-evidence">{featureText(feature, 'evidence')}</span>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
         {:else}
           <p class="empty">Select an audit to view details.</p>
         {/if}
@@ -1357,17 +1428,50 @@
   }
 
   .sources,
-  .notes {
+  .notes,
+  .privacy {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
   }
 
   .sources h4,
-  .notes h4 {
+  .notes h4,
+  .privacy h4 {
     margin: 0;
     font-size: 0.95rem;
     color: #1f2937;
+  }
+
+  .privacy-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .privacy-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    color: #374151;
+  }
+
+  .privacy-list li {
+    margin-bottom: 0.5rem;
+  }
+
+  .privacy-detail {
+    display: inline-block;
+    margin-left: 0.5rem;
+    font-size: 0.8rem;
+    color: #6b7280;
+  }
+
+  .privacy-evidence {
+    display: block;
+    margin-top: 0.2rem;
+    color: #4b5563;
+    font-size: 0.8rem;
+    word-break: break-word;
   }
 
   .badges {
@@ -1383,6 +1487,41 @@
     color: #0c4a6e;
     font-size: 0.8rem;
     font-weight: 600;
+  }
+
+  .badge.privacy.good {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .badge.privacy.warn {
+    background: #fef9c3;
+    color: #854d0e;
+  }
+
+  .badge.privacy.bad {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .privacy-score.good {
+    color: #166534;
+    font-weight: 700;
+  }
+
+  .privacy-score.warn {
+    color: #a16207;
+    font-weight: 700;
+  }
+
+  .privacy-score.bad {
+    color: #991b1b;
+    font-weight: 700;
+  }
+
+  .privacy-score.neutral {
+    color: #6b7280;
+    font-weight: 700;
   }
 
   .notes ul {

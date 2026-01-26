@@ -217,6 +217,10 @@ def list_papers(
             Audit.chain_owner.label("chain_owner"),
             Audit.cms_platform.label("cms_platform"),
             Audit.cms_vendor.label("cms_vendor"),
+            Audit.privacy_summary.label("privacy_summary"),
+            Audit.privacy_score.label("privacy_score"),
+            Audit.privacy_flags.label("privacy_flags"),
+            Audit.privacy_features.label("privacy_features"),
             func.substr(Audit.homepage_html, 1, 1500).label("homepage_preview"),
             func.row_number()
             .over(partition_by=Audit.paper_id, order_by=Audit.timestamp.desc())
@@ -387,6 +391,10 @@ def list_papers(
                 chain_owner=mapping.get("chain_owner_value"),
                 cms_platform=mapping.get("cms_platform_value"),
                 cms_vendor=mapping.get("cms_vendor_value"),
+                privacy_summary=mapping.get("privacy_summary"),
+                privacy_score=mapping.get("privacy_score"),
+                privacy_flags=mapping.get("privacy_flags"),
+                privacy_features=mapping.get("privacy_features"),
             )
         else:
             fallback_chain = mapping.get("chain_owner_value")
@@ -407,6 +415,10 @@ def list_papers(
                     chain_owner=fallback_chain,
                     cms_platform=fallback_platform,
                     cms_vendor=fallback_vendor,
+                    privacy_summary=None,
+                    privacy_score=None,
+                    privacy_flags=None,
+                    privacy_features=None,
                 )
 
         latest_audit, _override_map = _apply_overrides_to_summary(paper, latest_audit)
@@ -544,6 +556,10 @@ def list_paper_ids(
             Audit.chain_owner.label("chain_owner"),
             Audit.cms_platform.label("cms_platform"),
             Audit.cms_vendor.label("cms_vendor"),
+            Audit.privacy_summary.label("privacy_summary"),
+            Audit.privacy_score.label("privacy_score"),
+            Audit.privacy_flags.label("privacy_flags"),
+            Audit.privacy_features.label("privacy_features"),
             func.row_number()
             .over(partition_by=Audit.paper_id, order_by=Audit.timestamp.desc())
             .label("row_number"),
@@ -694,6 +710,10 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             Audit.chain_owner.label("chain_owner"),
             Audit.cms_platform.label("cms_platform"),
             Audit.cms_vendor.label("cms_vendor"),
+            Audit.privacy_summary.label("privacy_summary"),
+            Audit.privacy_score.label("privacy_score"),
+            Audit.privacy_flags.label("privacy_flags"),
+            Audit.privacy_features.label("privacy_features"),
             func.row_number()
             .over(partition_by=Audit.paper_id, order_by=Audit.timestamp.desc())
             .label("row_number"),
@@ -836,6 +856,10 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
                 chain_owner=mapping.get("chain_owner_value"),
                 cms_platform=mapping.get("cms_platform_value"),
                 cms_vendor=mapping.get("cms_vendor_value"),
+                privacy_summary=mapping.get("privacy_summary"),
+                privacy_score=mapping.get("privacy_score"),
+                privacy_flags=mapping.get("privacy_flags"),
+                privacy_features=mapping.get("privacy_features"),
             )
         else:
             fallback_chain = mapping.get("chain_owner_value")
@@ -855,6 +879,10 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
                     chain_owner=fallback_chain,
                     cms_platform=fallback_platform,
                     cms_vendor=fallback_vendor,
+                    privacy_summary=None,
+                    privacy_score=None,
+                    privacy_flags=None,
+                    privacy_features=None,
                 )
 
         latest_audit_summary, override_map = _apply_overrides_to_summary(paper, latest_audit_summary)
@@ -1127,6 +1155,10 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
             chain_owner=latest.chain_owner,
             cms_platform=latest.cms_platform,
             cms_vendor=latest.cms_vendor,
+            privacy_summary=latest.privacy_summary,
+            privacy_score=latest.privacy_score,
+            privacy_flags=latest.privacy_flags,
+            privacy_features=latest.privacy_features,
         )
     else:
         if any([paper.chain_owner, paper.cms_platform, paper.cms_vendor]):
@@ -1144,6 +1176,10 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
                 chain_owner=paper.chain_owner,
                 cms_platform=paper.cms_platform,
                 cms_vendor=paper.cms_vendor,
+                privacy_summary=None,
+                privacy_score=None,
+                privacy_flags=None,
+                privacy_features=None,
             )
 
     latest_summary, override_map = _apply_overrides_to_summary(paper, latest_summary)

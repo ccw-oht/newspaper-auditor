@@ -52,6 +52,10 @@ class Audit(Base):
     chain_owner = Column(String)
     cms_platform = Column(String)
     cms_vendor = Column(String)
+    privacy_summary = Column(String)
+    privacy_score = Column(Integer)
+    privacy_flags = Column(JSON, default=dict)
+    privacy_features = Column(JSON, default=list)
 
     paper = relationship("Paper", back_populates="audits")
 

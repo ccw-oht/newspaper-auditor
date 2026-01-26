@@ -196,6 +196,54 @@ function goToLast() {
     return record[field];
   }
 
+  function privacyScore(item: PaperSummary): number | null {
+    const score = item.latest_audit?.privacy_score;
+    if (typeof score === 'number') return score;
+    if (typeof score === 'string' && score.trim()) {
+      const parsed = Number(score);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
+  function privacyScoreClass(value: number | null): string {
+    if (value == null) return 'neutral';
+    if (value <= 20) return 'good';
+    if (value <= 50) return 'warn';
+    return 'bad';
+  }
+
+  function privacyFlagClass(key: string, value: unknown): string {
+    const normalized = key.trim().toLowerCase();
+    const isTrue = Boolean(value);
+    if (normalized === 'has_consent_tool') {
+      return isTrue ? 'good' : 'warn';
+    }
+    return isTrue ? 'bad' : 'good';
+  }
+
+  function privacyFlags(item: PaperSummary): Record<string, unknown> | null {
+    const flags = item.latest_audit?.privacy_flags;
+    return flags && typeof flags === 'object' ? (flags as Record<string, unknown>) : null;
+  }
+
+  function privacySummary(item: PaperSummary): string | null {
+    const summary = item.latest_audit?.privacy_summary;
+    if (typeof summary === 'string') return summary;
+    return summary != null ? String(summary) : null;
+  }
+
+  function privacyFeatures(item: PaperSummary): Array<Record<string, unknown>> {
+    const features = item.latest_audit?.privacy_features;
+    return Array.isArray(features) ? (features as Array<Record<string, unknown>>) : [];
+  }
+
+  function formatLabel(value: string): string {
+    return value
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
   function hasLookup(item: PaperSummary): boolean {
     const extra = item.extra_data as Record<string, unknown> | null | undefined;
     if (!extra) return false;
@@ -329,13 +377,14 @@ function goToLast() {
             {/if}
           </button>
         </th>
+        <th class="privacy-score">Privacy</th>
         <th class="actions">Actions</th>
       </tr>
     </thead>
     <tbody>
       {#if items.length === 0}
         <tr>
-          <td colspan="7" class="empty">No results</td>
+          <td colspan="8" class="empty">No results</td>
         </tr>
       {:else}
         {#each items as item, index}
@@ -469,6 +518,11 @@ function goToLast() {
                 {/each}
               </div>
             </td>
+            <td class="privacy-score">
+              <span class={`privacy-pill ${privacyScoreClass(privacyScore(item))}`}>
+                {privacyScore(item) ?? '—'}
+              </span>
+            </td>
             <td class="actions">
               <div class="action-buttons">
                 <button
@@ -502,7 +556,7 @@ function goToLast() {
           </tr>
           {#if expandedIds.has(item.id) || hoverExpandedId === item.id}
             <tr class="detail-row">
-              <td colspan="7">
+              <td colspan="8">
                 <div class="detail-content" transition:slide={{ duration: 360 }}>
                   <div class="detail-grid">
                     <div class="detail-block">
@@ -528,6 +582,25 @@ function goToLast() {
                       <div class="detail-line"><span>Primary contact:</span> {primaryContact(item) ?? '—'}</div>
                       <div class="detail-line"><span>Phone:</span> {item.phone ?? '—'}</div>
                       <div class="detail-line"><span>Email:</span> {item.email ?? '—'}</div>
+                    </div>
+                    <div class="detail-block">
+                      <h4>Privacy signals</h4>
+                      <div class="detail-line"><span>Score:</span> {privacyScore(item) ?? '—'}</div>
+                      <div class="detail-line"><span>Summary:</span> {privacySummary(item) ?? '—'}</div>
+                      {#if privacyFlags(item)}
+                        <div class="privacy-flag-row">
+                          {#each Object.entries(privacyFlags(item) ?? {}) as [key, value]}
+                            <span class={`privacy-flag ${privacyFlagClass(key, value)}`}>{formatLabel(key)}: {value ? 'Yes' : 'No'}</span>
+                          {/each}
+                        </div>
+                      {/if}
+                      {#if privacyFeatures(item).length > 0}
+                        <ul class="privacy-feature-list">
+                          {#each privacyFeatures(item) as feature}
+                            <li>{feature.vendor ?? 'Unknown'} ({formatLabel(feature.category ?? 'unknown')})</li>
+                          {/each}
+                        </ul>
+                      {/if}
                     </div>
                   </div>
                 </div>
@@ -650,7 +723,13 @@ function goToLast() {
 
   th.audit-summary,
   td.audit-summary {
-    width: 19rem;
+    width: 18rem;
+  }
+
+  th.privacy-score,
+  td.privacy-score {
+    width: 6.5rem;
+    text-align: center;
   }
 
   td.paper-cell {
@@ -830,6 +909,38 @@ function goToLast() {
     background: #f3f4f6;
     color: #374151;
   }
+
+  .privacy-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.5rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    border: 1px solid #e5e7eb;
+    background: #f3f4f6;
+    color: #374151;
+  }
+
+  .privacy-pill.good {
+    border-color: rgba(22, 163, 74, 0.25);
+    background: rgba(220, 252, 231, 0.85);
+    color: #166534;
+  }
+
+  .privacy-pill.warn {
+    border-color: rgba(245, 158, 11, 0.25);
+    background: rgba(254, 243, 199, 0.85);
+    color: #b45309;
+  }
+
+  .privacy-pill.bad {
+    border-color: rgba(239, 68, 68, 0.25);
+    background: rgba(254, 226, 226, 0.85);
+    color: #b91c1c;
+  }
   .action-buttons {
     display: flex;
     gap: 0.5rem;
@@ -868,6 +979,48 @@ function goToLast() {
   .detail-line span {
     font-weight: 600;
     color: #111827;
+  }
+
+  .privacy-flag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+  }
+
+  .privacy-flag {
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: #f3f4f6;
+    color: #374151;
+  }
+
+  .privacy-flag.good {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .privacy-flag.warn {
+    background: #fef9c3;
+    color: #854d0e;
+  }
+
+  .privacy-flag.bad {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .privacy-feature-list {
+    margin: 0.4rem 0 0;
+    padding-left: 1.1rem;
+    color: #374151;
+    font-size: 0.8rem;
+  }
+
+  .privacy-feature-list li {
+    margin-bottom: 0.2rem;
   }
 
   .pill-row {

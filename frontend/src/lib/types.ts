@@ -14,6 +14,10 @@ export interface AuditSummary {
   chain_owner: string | null;
   cms_platform: string | null;
   cms_vendor: string | null;
+  privacy_summary: string | null;
+  privacy_score: number | null;
+  privacy_flags: Record<string, unknown> | null;
+  privacy_features: Array<Record<string, unknown>> | null;
   overrides?: Record<string, AuditValue | null | string | undefined> | null;
 }
 

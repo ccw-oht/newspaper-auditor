@@ -1003,6 +1003,360 @@ def detect_responsive(homepage_html):
     notes.append("No responsive indicators")
     return "No", ["Homepage"], notes
 
+PRIVACY_SIGNATURES = [
+    {
+        "vendor": "Google Analytics",
+        "category": "analytics",
+        "patterns": {
+            "script_src": [
+                "googletagmanager.com/gtag/js",
+                "google-analytics.com/analytics.js",
+                "google-analytics.com/ga.js",
+            ],
+            "inline": ["gtag(", "ga(", "google-analytics.com"],
+            "img_src": ["google-analytics.com/collect"],
+        },
+    },
+    {
+        "vendor": "Google Tag Manager",
+        "category": "tag_manager",
+        "patterns": {
+            "script_src": ["googletagmanager.com/gtm.js"],
+            "inline": ["dataLayer", "gtm.start", "googletagmanager.com/gtm.js"],
+        },
+    },
+    {
+        "vendor": "Meta Pixel",
+        "category": "pixel",
+        "patterns": {
+            "script_src": ["connect.facebook.net/en_US/fbevents.js"],
+            "inline": ["fbq('init'", "fbq(\"init\"", "fbq('track'", "fbq(\"track\""],
+            "img_src": ["facebook.com/tr"],
+        },
+    },
+    {
+        "vendor": "TikTok Pixel",
+        "category": "pixel",
+        "patterns": {
+            "script_src": ["analytics.tiktok.com", "tiktok.com/i18n/pixel"],
+            "inline": ["ttq.load", "ttq.page", "ttq.track"],
+        },
+    },
+    {
+        "vendor": "Bing UET",
+        "category": "analytics",
+        "patterns": {
+            "script_src": ["bat.bing.com/bat.js"],
+            "inline": ["uetq", "bat.bing.com"],
+        },
+    },
+    {
+        "vendor": "LinkedIn Insight",
+        "category": "pixel",
+        "patterns": {
+            "script_src": ["snap.licdn.com/li.lms-analytics/insight.min.js"],
+            "inline": ["linkedin insight", "lms-analytics"],
+        },
+    },
+    {
+        "vendor": "Twitter/X Pixel",
+        "category": "pixel",
+        "patterns": {
+            "script_src": ["static.ads-twitter.com/uwt.js"],
+            "inline": ["twq(", "twttr.conversion"],
+        },
+    },
+    {
+        "vendor": "Pinterest Tag",
+        "category": "pixel",
+        "patterns": {"script_src": ["ct.pinterest.com/v3/"], "inline": ["pintrk("]},
+    },
+    {
+        "vendor": "Snap Pixel",
+        "category": "pixel",
+        "patterns": {"script_src": ["sc-static.net/scevent.min.js"], "inline": ["snaptr("]},
+    },
+    {
+        "vendor": "Adobe Analytics",
+        "category": "analytics",
+        "patterns": {"script_src": ["omtrdc.net", "2o7.net"], "inline": ["s.t(", "adobe analytics"]},
+    },
+    {
+        "vendor": "Adobe Launch",
+        "category": "tag_manager",
+        "patterns": {"script_src": ["assets.adobedtm.com", "adobedtm.com"], "inline": ["adobedtm"]},
+    },
+    {
+        "vendor": "Tealium",
+        "category": "tag_manager",
+        "patterns": {"script_src": ["tags.tiqcdn.com", "tiqcdn.com"], "inline": ["utag"]},
+    },
+    {
+        "vendor": "Segment",
+        "category": "analytics",
+        "patterns": {"script_src": ["cdn.segment.com/analytics.js"], "inline": ["analytics.load("]},
+    },
+    {
+        "vendor": "Mixpanel",
+        "category": "analytics",
+        "patterns": {"script_src": ["cdn.mxpnl.com/libs/mixpanel"], "inline": ["mixpanel.init("]},
+    },
+    {
+        "vendor": "Matomo",
+        "category": "analytics",
+        "patterns": {"script_src": ["/matomo.js", "/piwik.js"], "inline": ["matomoTracker", "_paq"]},
+    },
+    {
+        "vendor": "Plausible",
+        "category": "analytics",
+        "patterns": {"script_src": ["plausible.io/js/plausible.js"], "inline": ["plausible("]},
+    },
+    {
+        "vendor": "Fathom",
+        "category": "analytics",
+        "patterns": {"script_src": ["cdn.usefathom.com", "fathom.js"], "inline": ["fathom.trackGoal"]},
+    },
+    {
+        "vendor": "Cloudflare Web Analytics",
+        "category": "analytics",
+        "patterns": {"script_src": ["static.cloudflareinsights.com/beacon.min.js"], "inline": ["cloudflareinsights"]},
+    },
+    {
+        "vendor": "Hotjar",
+        "category": "session_replay",
+        "patterns": {"script_src": ["static.hotjar.com/c/hotjar-", "hotjar.com"], "inline": ["hj(", "hotjar"]},
+    },
+    {
+        "vendor": "FullStory",
+        "category": "session_replay",
+        "patterns": {"script_src": ["fullstory.com/s/fs.js"], "inline": ["FS.identify", "fullstory"]},
+    },
+    {
+        "vendor": "LogRocket",
+        "category": "session_replay",
+        "patterns": {"script_src": ["cdn.logrocket.io"], "inline": ["LogRocket.init"]},
+    },
+    {
+        "vendor": "Microsoft Clarity",
+        "category": "session_replay",
+        "patterns": {"script_src": ["clarity.ms/tag/"], "inline": ["clarity("]},
+    },
+    {
+        "vendor": "Crazy Egg",
+        "category": "session_replay",
+        "patterns": {"script_src": ["crazyegg.com/pages/scripts"], "inline": ["crazyegg"]},
+    },
+    {
+        "vendor": "Inspectlet",
+        "category": "session_replay",
+        "patterns": {"script_src": ["inspectlet.com/wrm"], "inline": ["__insp"]},
+    },
+    {
+        "vendor": "Lucky Orange",
+        "category": "session_replay",
+        "patterns": {"script_src": ["luckyorange.com", "lo.js"], "inline": ["luckyorange"]},
+    },
+    {
+        "vendor": "Cookiebot",
+        "category": "consent",
+        "patterns": {"script_src": ["consent.cookiebot.com/uc.js"], "inline": ["Cookiebot"]},
+    },
+    {
+        "vendor": "OneTrust",
+        "category": "consent",
+        "patterns": {"script_src": ["cdn.cookielaw.org", "cookie-cdn.cookiepro.com"], "inline": ["Optanon", "OneTrust"]},
+    },
+    {
+        "vendor": "TrustArc",
+        "category": "consent",
+        "patterns": {"script_src": ["trustarc.com", "truste.com"], "inline": ["truste", "trustarc"]},
+    },
+    {
+        "vendor": "Didomi",
+        "category": "consent",
+        "patterns": {"script_src": ["didomi.io"], "inline": ["didomi"]},
+    },
+    {
+        "vendor": "Quantcast CMP",
+        "category": "consent",
+        "patterns": {"script_src": ["quantcast.mgr.consensu.org", "quantcast.com/choice"], "inline": ["__cmp", "quantcast"]},
+    },
+    {
+        "vendor": "IAB TCF",
+        "category": "consent",
+        "patterns": {"inline": ["__tcfapi", "tcfapi"]},
+    },
+    {
+        "vendor": "LiveRamp",
+        "category": "ads",
+        "patterns": {"script_src": ["liveramp.com", "idsync.rlcdn.com"], "inline": ["liveramp"]},
+    },
+    {
+        "vendor": "Criteo",
+        "category": "ads",
+        "patterns": {"script_src": ["static.criteo.net", "criteo.com"], "inline": ["criteo"]},
+    },
+    {
+        "vendor": "Taboola",
+        "category": "ads",
+        "patterns": {"script_src": ["taboola.com"], "inline": ["taboola"]},
+    },
+    {
+        "vendor": "Outbrain",
+        "category": "ads",
+        "patterns": {"script_src": ["outbrain.com"], "inline": ["outbrain"]},
+    },
+    {
+        "vendor": "Amazon Publisher Services",
+        "category": "ads",
+        "patterns": {"script_src": ["c.amazon-adsystem.com"], "inline": ["apstag"]},
+    },
+    {
+        "vendor": "OpenX",
+        "category": "ads",
+        "patterns": {"script_src": ["openx.net"], "inline": ["openx"]},
+    },
+]
+
+PRIVACY_SCORE_WEIGHTS = {
+    "analytics": 10,
+    "tag_manager": 15,
+    "pixel": 20,
+    "session_replay": 25,
+    "ads": 20,
+    "consent": 0,
+}
+
+
+def _find_pattern_matches(values: list[str], patterns: list[str]) -> list[str]:
+    matches: list[str] = []
+    for value in values:
+        for pattern in patterns:
+            if pattern.lower() in value:
+                matches.append(value)
+                break
+    return matches
+
+
+def _find_pattern_tokens(values: list[str], patterns: list[str]) -> list[str]:
+    tokens: list[str] = []
+    for value in values:
+        for pattern in patterns:
+            lowered = pattern.lower()
+            if lowered in value:
+                tokens.append(lowered)
+    return tokens
+
+
+def detect_privacy_features(homepage_html: str | None):
+    if not homepage_html:
+        flags = {
+            "has_tracking": False,
+            "has_consent_tool": False,
+            "has_session_replay": False,
+            "has_pixels": False,
+            "has_tag_manager": False,
+            "has_analytics": False,
+            "has_ad_network": False,
+        }
+        return [], flags, 0, "No homepage HTML available"
+
+    soup = BeautifulSoup(homepage_html, "html.parser")
+    script_srcs = [
+        (script.get("src") or "").strip().lower()
+        for script in soup.find_all("script")
+        if script.get("src")
+    ]
+    inline_scripts = [
+        script.get_text(" ", strip=True).lower()
+        for script in soup.find_all("script")
+        if not script.get("src") and script.get_text(strip=True)
+    ]
+    img_srcs = [
+        (img.get("src") or "").strip().lower()
+        for img in soup.find_all("img")
+        if img.get("src")
+    ]
+    noscripts = [
+        noscript.get_text(" ", strip=True).lower()
+        for noscript in soup.find_all("noscript")
+        if noscript.get_text(strip=True)
+    ]
+
+    features: list[dict[str, str]] = []
+    for signature in PRIVACY_SIGNATURES:
+        patterns = signature.get("patterns", {})
+        evidence: list[tuple[str, str]] = []
+        confidence = None
+
+        if patterns.get("script_src"):
+            matches = _find_pattern_matches(script_srcs, patterns["script_src"])
+            if matches:
+                evidence.extend([("script_src", match) for match in matches])
+                confidence = "high"
+
+        if patterns.get("img_src"):
+            matches = _find_pattern_matches(img_srcs, patterns["img_src"])
+            if matches:
+                evidence.extend([("img_src", match) for match in matches])
+                confidence = confidence or "high"
+
+        if patterns.get("inline"):
+            inline_matches = _find_pattern_tokens(inline_scripts, patterns["inline"])
+            noscript_matches = _find_pattern_tokens(noscripts, patterns["inline"])
+            if inline_matches or noscript_matches:
+                evidence.extend([("inline", match) for match in inline_matches])
+                evidence.extend([("inline", match) for match in noscript_matches])
+                confidence = confidence or "medium"
+
+        if evidence:
+            used_evidence = evidence[:3]
+            for source_type, match in used_evidence:
+                features.append(
+                    {
+                        "vendor": signature["vendor"],
+                        "category": signature["category"],
+                        "signal": source_type,
+                        "evidence": match,
+                        "confidence": confidence or "low",
+                    }
+                )
+
+    flags = {
+        "has_tracking": any(feature["category"] != "consent" for feature in features),
+        "has_consent_tool": any(feature["category"] == "consent" for feature in features),
+        "has_session_replay": any(feature["category"] == "session_replay" for feature in features),
+        "has_pixels": any(feature["category"] == "pixel" for feature in features),
+        "has_tag_manager": any(feature["category"] == "tag_manager" for feature in features),
+        "has_analytics": any(feature["category"] == "analytics" for feature in features),
+        "has_ad_network": any(feature["category"] == "ads" for feature in features),
+    }
+
+    categories_seen = {feature["category"] for feature in features}
+    score = sum(PRIVACY_SCORE_WEIGHTS.get(category, 0) for category in categories_seen)
+    score = min(score, 100)
+
+    summary_parts: list[str] = []
+    ordered_categories = [
+        "tag_manager",
+        "analytics",
+        "pixel",
+        "session_replay",
+        "ads",
+        "consent",
+    ]
+    for category in ordered_categories:
+        vendors = []
+        for feature in features:
+            if feature["category"] == category and feature["vendor"] not in vendors:
+                vendors.append(feature["vendor"])
+        if vendors:
+            label = category.replace("_", " ").title()
+            summary_parts.append(f"{label}: {', '.join(vendors)}")
+    summary = "; ".join(summary_parts) if summary_parts else "None detected"
+
+    return features, flags, score, summary
+
 # --- Main Audit ---
 
 def quick_audit(url: str, *, strict: bool = False):
@@ -1020,6 +1374,10 @@ def quick_audit(url: str, *, strict: bool = False):
         "Chain Owner": "Manual Review",
         "CMS Platform": "Manual Review",
         "CMS Vendor": "Manual Review",
+        "Privacy Features": None,
+        "Privacy Flags": None,
+        "Privacy Score": None,
+        "Privacy Summary": None,
     }
 
     if not isinstance(url, str) or not url.strip():
@@ -1035,6 +1393,10 @@ def quick_audit(url: str, *, strict: bool = False):
             "Chain Owner": "",
             "CMS Platform": "",
             "CMS Vendor": "",
+            "Privacy Features": None,
+            "Privacy Flags": None,
+            "Privacy Score": None,
+            "Privacy Summary": None,
         }
 
     if not url.startswith("http"):
@@ -1184,6 +1546,7 @@ def quick_audit(url: str, *, strict: bool = False):
     )
     notices, notice_sources, notice_notes = detect_public_notices(homepage_html, sitemap_data, rss_data)
     responsive, resp_sources, resp_notes = detect_responsive(homepage_html)
+    privacy_features, privacy_flags, privacy_score, privacy_summary = detect_privacy_features(homepage_html)
 
     all_sources = (
         pdf_sources
@@ -1238,6 +1601,10 @@ def quick_audit(url: str, *, strict: bool = False):
         "Chain Owner": chain_value,
         "CMS Platform": cms_platform,
         "CMS Vendor": cms_vendor,
+        "Privacy Features": privacy_features,
+        "Privacy Flags": privacy_flags,
+        "Privacy Score": privacy_score,
+        "Privacy Summary": privacy_summary,
     })
 
     return audit
@@ -1269,6 +1636,10 @@ def process_csv(input_file, force=False):
         "Chain Owner",
         "CMS Platform",
         "CMS Vendor",
+        "Privacy Summary",
+        "Privacy Score",
+        "Privacy Flags",
+        "Privacy Features",
         "Audit Sources",
         "Audit Notes",
     ]

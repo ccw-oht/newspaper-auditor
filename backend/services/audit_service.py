@@ -98,6 +98,10 @@ def perform_audit(db: Session, paper: Paper) -> tuple[Audit, dict[str, str | Non
             chain_owner=results.get("Chain Owner"),
             cms_platform=results.get("CMS Platform"),
             cms_vendor=results.get("CMS Vendor"),
+            privacy_summary=results.get("Privacy Summary"),
+            privacy_score=results.get("Privacy Score"),
+            privacy_flags=results.get("Privacy Flags"),
+            privacy_features=results.get("Privacy Features"),
             timestamp=datetime.utcnow(),
         )
     else:
