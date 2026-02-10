@@ -47,6 +47,10 @@ export interface PaperSummary {
   cms_vendor: string | null;
   extra_data: Record<string, unknown> | null;
   audit_overrides: Record<string, AuditValue | null | string | undefined> | null;
+  contact_overrides: Record<string, string | null | undefined> | null;
+  last_lookup_at: string | null;
+  last_import_at: string | null;
+  last_audit_at: string | null;
   latest_audit: AuditSummary | null;
 }
 
@@ -72,6 +76,10 @@ export interface PaperDetail {
   cms_vendor: string | null;
   extra_data: Record<string, unknown> | null;
   audit_overrides: Record<string, AuditValue | null | string | undefined> | null;
+  contact_overrides: Record<string, string | null | undefined> | null;
+  last_lookup_at: string | null;
+  last_import_at: string | null;
+  last_audit_at: string | null;
   latest_audit: AuditSummary | null;
   audits: AuditOut[];
 }
@@ -91,6 +99,7 @@ export interface PaperUpdatePayload {
   cms_vendor?: string | null;
   extra_data?: Record<string, unknown> | null;
   audit_overrides?: Record<string, AuditValue | null | string | undefined> | null;
+  contact_overrides?: Record<string, string | null | undefined> | null;
 }
 
 export interface PaperListParams {
@@ -104,6 +113,9 @@ export interface PaperListParams {
   chain_owner?: string;
   cms_platform?: string;
   cms_vendor?: string;
+  has_lookup?: string;
+  has_import?: string;
+  has_audit?: string;
   q?: string;
   sort?: string;
   order?: 'asc' | 'desc';
@@ -122,6 +134,9 @@ export interface FilterValues {
   chain_owner?: string;
   cms_platform?: string;
   cms_vendor?: string;
+  has_lookup?: string;
+  has_import?: string;
+  has_audit?: string;
   q?: string;
   limit?: number;
 }

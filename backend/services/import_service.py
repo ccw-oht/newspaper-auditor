@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime
 from difflib import SequenceMatcher
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Tuple
@@ -13,7 +14,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import schemas
-from ..import_utils import BASE_FIELDS, REQUIRED_FIELDS, build_lookup_key, iter_normalized_rows, normalize_columns
+from ..import_utils import (
+    BASE_FIELDS,
+    REQUIRED_FIELDS,
+    build_lookup_key,
+    iter_normalized_rows,
+    normalize_columns,
+    paper_name_match_key,
+    website_url_match_key,
+)
 from ..models import Paper
 
 
@@ -45,6 +54,7 @@ def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[Staged
 
     cache: Dict[Tuple[str, str, str], Paper | None] = {}
     seen_in_file: Dict[Tuple[str, str, str], str] = {}
+    seen_url_in_file: Dict[str, str] = {}
 
     for data, _extras in iter_normalized_rows(normalized):
         temp_id = str(uuid.uuid4())
@@ -66,6 +76,7 @@ def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[Staged
             continue
 
         key = build_lookup_key(data)
+        url_key = website_url_match_key(data.get("website_url"))
 
         existing = cache.get(key)
         if key not in cache:
@@ -87,15 +98,30 @@ def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[Staged
             if not differences:
                 issues.append("No changes detected; identical to existing record")
 
+        duplicate_source_temp_id: str | None = None
+        duplicate_reason: str | None = None
         if key in seen_in_file:
+            duplicate_source_temp_id = seen_in_file[key]
+            duplicate_reason = "Duplicate row in uploaded file"
+        elif url_key and url_key in seen_url_in_file:
+            duplicate_source_temp_id = seen_url_in_file[url_key]
+            duplicate_reason = "Duplicate Website URL in uploaded file"
+
+        if duplicate_source_temp_id:
             status = "duplicate"
-            issues.append("Duplicate row in uploaded file")
-            previous_status = _mark_previous_duplicate(staged, seen_in_file[key])
-            if previous_status:
+            issues.append(duplicate_reason or "Duplicate row in uploaded file")
+            previous_status = _mark_previous_duplicate(
+                staged,
+                duplicate_source_temp_id,
+                duplicate_reason or "Duplicate row in uploaded file",
+            )
+            if previous_status and previous_status != "duplicate":
                 summary[previous_status] -= 1
             summary["duplicate"] += 1
         else:
             seen_in_file[key] = temp_id
+            if url_key:
+                seen_url_in_file[url_key] = temp_id
             summary[status] += 1
 
         staged.append(
@@ -113,12 +139,24 @@ def generate_preview(frame: pd.DataFrame, session: Session) -> Tuple[List[Staged
 
 
 def _fetch_existing(session: Session, data: Dict[str, str | None]) -> Paper | None:
+    incoming_url_key = website_url_match_key(data.get("website_url"))
+    if incoming_url_key:
+        url_stmt = select(Paper).where(Paper.website_url.is_not(None))
+        for candidate in session.execute(url_stmt).scalars().all():
+            if website_url_match_key(candidate.website_url) == incoming_url_key:
+                return candidate
+
     city_value = (data.get("city") or "").strip().lower()
-    name_value = (data.get("paper_name") or "").strip().lower()
-    stmt = select(Paper).where(
-        func.lower(func.trim(Paper.paper_name)) == name_value,
-        func.lower(func.trim(Paper.city)) == city_value,
-    )
+    incoming_name_key = paper_name_match_key(data.get("paper_name"))
+    if not incoming_name_key:
+        return None
+
+    stmt = select(Paper)
+    if city_value:
+        stmt = stmt.where(func.lower(func.trim(Paper.city)) == city_value)
+    else:
+        stmt = stmt.where((Paper.city.is_(None)) | (func.trim(Paper.city) == ""))
+
     state_value = data.get("state")
     if state_value:
         stmt = stmt.where(func.lower(func.trim(Paper.state)) == state_value.strip().lower())
@@ -127,7 +165,11 @@ def _fetch_existing(session: Session, data: Dict[str, str | None]) -> Paper | No
             (Paper.state.is_(None)) | (func.trim(Paper.state) == "")
         )
 
-    return session.execute(stmt).scalars().first()
+    for candidate in session.execute(stmt).scalars().all():
+        if paper_name_match_key(candidate.paper_name) == incoming_name_key:
+            return candidate
+
+    return None
 
 
 def _normalize_name(value: str) -> str:
@@ -214,13 +256,13 @@ def _compute_differences(existing: Paper, data: Dict[str, str | None]) -> Dict[s
     return diffs
 
 
-def _mark_previous_duplicate(staged: List[StagedRow], temp_id: str) -> str | None:
+def _mark_previous_duplicate(staged: List[StagedRow], temp_id: str, reason: str) -> str | None:
     for staged_row in staged:
         if staged_row.temp_id == temp_id:
             original = staged_row.status
             if staged_row.status != "duplicate":
                 staged_row.status = "duplicate"
-                staged_row.issues.append("Duplicate row in uploaded file")
+                staged_row.issues.append(reason)
             return original
     return None
 
@@ -263,6 +305,16 @@ def allowed_actions(status: str) -> List[str]:
     return ALLOWED_ACTIONS.get(status, ["skip"])
 
 
+def _stamp_import_metadata(extra_data: Dict[str, Any] | None) -> Dict[str, Any]:
+    merged = dict(extra_data or {})
+    metadata_raw = merged.get("import_metadata")
+    metadata = dict(metadata_raw) if isinstance(metadata_raw, dict) else {}
+    metadata["last_import_at"] = datetime.utcnow().isoformat()
+    metadata["source"] = "csv_import"
+    merged["import_metadata"] = metadata
+    return merged
+
+
 def commit_rows(session: Session, commit_rows: Iterable[schemas.ImportCommitRow]) -> schemas.ImportCommitResult:
     inserted = updated = skipped = 0
 
@@ -285,7 +337,7 @@ def commit_rows(session: Session, commit_rows: Iterable[schemas.ImportCommitRow]
         if action == "insert":
             paper = Paper(
                 **normalized_data,
-                extra_data=extras or None,
+                extra_data=_stamp_import_metadata(extras),
                 audit_overrides=override_values or None,
             )
             session.add(paper)
@@ -314,10 +366,10 @@ def commit_rows(session: Session, commit_rows: Iterable[schemas.ImportCommitRow]
                             setattr(existing, field, value)
 
             if action == "overwrite":
-                existing.extra_data = extras or None
+                existing.extra_data = _stamp_import_metadata(extras)
             else:
                 merged = {**(existing.extra_data or {}), **(extras or {})}
-                existing.extra_data = merged or None
+                existing.extra_data = _stamp_import_metadata(merged)
 
             _apply_override_updates(existing, override_values)
             updated += 1

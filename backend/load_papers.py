@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import pandas as pd
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from .database import SessionLocal
 from .models import Audit, Paper
@@ -17,20 +17,41 @@ from .import_utils import (
     build_lookup_key,
     iter_normalized_rows,
     normalize_columns,
+    paper_name_match_key,
+    website_url_match_key,
 )
 
 
-def lookup_statement(data: Dict[str, str | None]):
-    stmt = select(Paper).where(
-        Paper.paper_name == data["paper_name"],
-        Paper.city == data["city"],
-    )
+def find_existing(session, data: Dict[str, str | None]):
+    incoming_url_key = website_url_match_key(data.get("website_url"))
+    if incoming_url_key:
+        stmt = select(Paper).where(Paper.website_url.is_not(None))
+        for candidate in session.execute(stmt).scalars().all():
+            if website_url_match_key(candidate.website_url) == incoming_url_key:
+                return candidate
+
+    incoming_name_key = paper_name_match_key(data.get("paper_name"))
+    if not incoming_name_key:
+        return None
+
+    stmt = select(Paper)
+    city_value = data.get("city")
+    if city_value:
+        stmt = stmt.where(Paper.city == city_value)
+    else:
+        stmt = stmt.where(or_(Paper.city.is_(None), Paper.city == ""))
+
     state_value = data.get("state")
     if state_value:
         stmt = stmt.where(Paper.state == state_value)
     else:
-        stmt = stmt.where(Paper.state.is_(None))
-    return stmt
+        stmt = stmt.where(or_(Paper.state.is_(None), Paper.state == ""))
+
+    for candidate in session.execute(stmt).scalars().all():
+        if paper_name_match_key(candidate.paper_name) == incoming_name_key:
+            return candidate
+
+    return None
 
 
 def apply_update(record: Paper, data: Dict[str, str | None]) -> None:
@@ -68,8 +89,7 @@ def load_rows(frame: pd.DataFrame, truncate_first: bool = False, dry_run: bool =
 
             existing = cache.get(key)
             if existing is None:
-                stmt = lookup_statement(data)
-                existing = session.execute(stmt).scalars().first() if stmt is not None else None
+                existing = find_existing(session, data)
                 if existing:
                     cache[key] = existing
 

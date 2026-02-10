@@ -26,10 +26,18 @@
     chain_owner: values.chain_owner ?? '',
     cms_platform: values.cms_platform ?? '',
     cms_vendor: values.cms_vendor ?? '',
+    has_lookup: values.has_lookup ?? '',
+    has_import: values.has_import ?? '',
+    has_audit: values.has_audit ?? '',
     q: values.q ?? ''
   };
 
   const auditOptions = ['', 'Yes', 'No', 'Manual Review'];
+  const presenceOptions = [
+    { value: '', label: 'Any' },
+    { value: 'has', label: 'Has value' },
+    { value: 'missing', label: 'Missing value' }
+  ];
 
   let availableCities: string[] = options.cities;
   let availableChains: string[] = options.chainOwners;
@@ -62,6 +70,9 @@
       chain_owner: local.chain_owner || undefined,
       cms_platform: local.cms_platform || undefined,
       cms_vendor: local.cms_vendor || undefined,
+      has_lookup: local.has_lookup || undefined,
+      has_import: local.has_import || undefined,
+      has_audit: local.has_audit || undefined,
       q: local.q || undefined
     });
   }
@@ -78,6 +89,9 @@
       chain_owner: '',
       cms_platform: '',
       cms_vendor: '',
+      has_lookup: '',
+      has_import: '',
+      has_audit: '',
       q: ''
     };
     dispatch('reset');
@@ -174,6 +188,30 @@
       <select bind:value={local.responsive}>
         {#each auditOptions as option}
           <option value={option}>{option || 'Any'}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      Last Lookup
+      <select bind:value={local.has_lookup}>
+        {#each presenceOptions as option}
+          <option value={option.value}>{option.label}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      Last Import
+      <select bind:value={local.has_import}>
+        {#each presenceOptions as option}
+          <option value={option.value}>{option.label}</option>
+        {/each}
+      </select>
+    </label>
+    <label>
+      Last Audit
+      <select bind:value={local.has_audit}>
+        {#each presenceOptions as option}
+          <option value={option.value}>{option.label}</option>
         {/each}
       </select>
     </label>

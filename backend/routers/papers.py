@@ -102,6 +102,92 @@ AUDIT_OVERRIDE_FIELDS = {
     "cms_vendor",
 }
 
+CONTACT_OVERRIDE_FIELDS = {
+    "state",
+    "city",
+    "paper_name",
+    "website_url",
+    "phone",
+    "email",
+    "mailing_address",
+    "county",
+    "publication_frequency",
+    "chain_owner",
+    "primary_contact",
+}
+
+
+def _clean_override_value(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip()
+    else:
+        cleaned = str(value).strip()
+    return cleaned or None
+
+
+def _get_contact_overrides(paper: Paper) -> dict[str, str]:
+    extra = paper.extra_data or {}
+    if not isinstance(extra, dict):
+        return {}
+    raw = extra.get("contact_overrides")
+    if not isinstance(raw, dict):
+        return {}
+
+    sanitized: dict[str, str] = {}
+    for key, value in raw.items():
+        if key not in CONTACT_OVERRIDE_FIELDS:
+            continue
+        cleaned = _clean_override_value(value)
+        if cleaned:
+            sanitized[key] = cleaned
+    return sanitized
+
+
+def _set_contact_overrides(paper: Paper, overrides: dict[str, str] | None) -> None:
+    extra = dict(paper.extra_data or {})
+    if overrides:
+        extra["contact_overrides"] = overrides
+    else:
+        extra.pop("contact_overrides", None)
+    paper.extra_data = extra or None
+
+
+def _contact_value(paper: Paper, field: str, overrides: dict[str, str]) -> Optional[str]:
+    override = overrides.get(field)
+    if override:
+        return override
+    if field == "publication_frequency":
+        return _publication_frequency_value(paper)
+    return getattr(paper, field)
+
+
+def _timestamp_from_extra(paper: Paper, section_key: str, timestamp_key: str) -> Optional[str]:
+    extra = paper.extra_data or {}
+    if not isinstance(extra, dict):
+        return None
+    section = extra.get(section_key)
+    if not isinstance(section, dict):
+        return None
+    raw = section.get(timestamp_key)
+    if isinstance(raw, str):
+        cleaned = raw.strip()
+        return cleaned or None
+    return None
+
+
+def _presence_condition(expr, value: Optional[str]):
+    normalized = _normalize_filter(value)
+    if not normalized:
+        return None
+    lowered = normalized.lower()
+    if lowered in {"yes", "has", "true", "present"}:
+        return expr.is_not(None)
+    if lowered in {"no", "missing", "false", "absent"}:
+        return expr.is_(None)
+    return None
+
 
 def _apply_overrides_to_summary(paper: Paper, summary: schemas.AuditSummary | None) -> tuple[schemas.AuditSummary | None, dict[str, str | None]]:
     overrides_raw = paper.audit_overrides or {}
@@ -143,6 +229,9 @@ def list_papers(
     chain_owner: Optional[str] = Query(default=None, description="Filter by detected chain/owner"),
     cms_platform: Optional[str] = Query(default=None, description="Filter by detected CMS platform"),
     cms_vendor: Optional[str] = Query(default=None, description="Filter by detected CMS vendor"),
+    has_lookup: Optional[str] = Query(default=None, description="Filter by lookup availability (has/missing)"),
+    has_import: Optional[str] = Query(default=None, description="Filter by import metadata availability (has/missing)"),
+    has_audit: Optional[str] = Query(default=None, description="Filter by audit availability (has/missing)"),
     q: Optional[str] = Query(default=None, description="Search by paper name or city"),
     sort: str = Query(default="paper_name", description="Field to sort by"),
     order: str = Query(default="asc", description="Sort direction (asc/desc)"),
@@ -240,9 +329,27 @@ def list_papers(
     )
     cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
     cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
+    last_lookup_at_value = func.nullif(
+        func.trim(func.cast(Paper.extra_data["contact_lookup"]["last_lookup_at"].as_string(), String)),
+        "",
+    ).label("last_lookup_at")
+    last_import_at_value = func.nullif(
+        func.trim(func.cast(Paper.extra_data["import_metadata"]["last_import_at"].as_string(), String)),
+        "",
+    ).label("last_import_at")
+    last_audit_at_value = latest.c.timestamp.label("last_audit_at")
 
     stmt = (
-        select(Paper, latest, chain_owner_value, cms_platform_value, cms_vendor_value)
+        select(
+            Paper,
+            latest,
+            chain_owner_value,
+            cms_platform_value,
+            cms_vendor_value,
+            last_lookup_at_value,
+            last_import_at_value,
+            last_audit_at_value,
+        )
         .outerjoin(latest, (Paper.id == latest.c.paper_id) & (latest.c.row_number == 1))
     )
 
@@ -287,6 +394,15 @@ def list_papers(
         if condition is not None:
             conditions.append(condition)
 
+    presence_filters = {
+        "has_lookup": _presence_condition(last_lookup_at_value, has_lookup),
+        "has_import": _presence_condition(last_import_at_value, has_import),
+        "has_audit": _presence_condition(last_audit_at_value, has_audit),
+    }
+    for condition in presence_filters.values():
+        if condition is not None:
+            conditions.append(condition)
+
     if q:
         pattern = f"%{q.strip()}%"
         conditions.append(
@@ -322,6 +438,9 @@ def list_papers(
         "cms_platform": cms_platform_value,
         "cms_vendor": cms_vendor_value,
         "timestamp": latest.c.timestamp,
+        "last_lookup_at": last_lookup_at_value,
+        "last_import_at": last_import_at_value,
+        "last_audit_at": last_audit_at_value,
     }
 
     sort_lower = sort.lower()
@@ -341,7 +460,10 @@ def list_papers(
         "chain_owner",
         "cms_platform",
         "cms_vendor",
+        "last_lookup_at",
+        "last_import_at",
     }
+    temporal_sort_fields = {"timestamp", "last_audit_at"}
 
     missing_condition = sort_key.is_(None)
     if sort_lower in string_sort_fields:
@@ -357,6 +479,8 @@ def list_papers(
 
     if sort_lower in string_sort_fields:
         sort_expression = func.lower(sort_key)
+    elif sort_lower in temporal_sort_fields:
+        sort_expression = sort_key
     else:
         sort_expression = sort_key
 
@@ -373,6 +497,7 @@ def list_papers(
     for row in rows:
         mapping = row._mapping  # SQLAlchemy RowMapping
         paper: Paper = mapping[Paper]
+        contact_overrides = _get_contact_overrides(paper)
 
         audit_id = mapping.get("audit_id")
         latest_audit = None
@@ -445,20 +570,24 @@ def list_papers(
         items.append(
             schemas.PaperSummary(
                 id=paper.id,
-                state=paper.state,
-                city=paper.city,
-                paper_name=paper.paper_name,
-                website_url=paper.website_url,
-                phone=paper.phone,
-                email=paper.email,
-                mailing_address=paper.mailing_address,
-                county=paper.county,
-                publication_frequency=_publication_frequency_value(paper),
-                chain_owner=display_chain,
+                state=_contact_value(paper, "state", contact_overrides),
+                city=_contact_value(paper, "city", contact_overrides),
+                paper_name=_contact_value(paper, "paper_name", contact_overrides),
+                website_url=_contact_value(paper, "website_url", contact_overrides),
+                phone=_contact_value(paper, "phone", contact_overrides),
+                email=_contact_value(paper, "email", contact_overrides),
+                mailing_address=_contact_value(paper, "mailing_address", contact_overrides),
+                county=_contact_value(paper, "county", contact_overrides),
+                publication_frequency=_contact_value(paper, "publication_frequency", contact_overrides),
+                chain_owner=_contact_value(paper, "chain_owner", contact_overrides) or display_chain,
                 cms_platform=display_platform,
                 cms_vendor=display_vendor,
                 extra_data=paper.extra_data,
                 audit_overrides=paper.audit_overrides,
+                contact_overrides=contact_overrides or None,
+                last_lookup_at=mapping.get("last_lookup_at"),
+                last_import_at=mapping.get("last_import_at"),
+                last_audit_at=mapping.get("last_audit_at"),
                 latest_audit=latest_audit,
             )
         )
@@ -526,6 +655,9 @@ def list_paper_ids(
     chain_owner: Optional[str] = Query(default=None),
     cms_platform: Optional[str] = Query(default=None),
     cms_vendor: Optional[str] = Query(default=None),
+    has_lookup: Optional[str] = Query(default=None),
+    has_import: Optional[str] = Query(default=None),
+    has_audit: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
 ):
@@ -578,6 +710,15 @@ def list_paper_ids(
     )
     cms_platform_value = _prioritized_value_expr(latest.c.cms_platform, Paper.cms_platform, "cms_platform", "cms_platform_value")
     cms_vendor_value = _prioritized_value_expr(latest.c.cms_vendor, Paper.cms_vendor, "cms_vendor", "cms_vendor_value")
+    last_lookup_at_value = func.nullif(
+        func.trim(func.cast(Paper.extra_data["contact_lookup"]["last_lookup_at"].as_string(), String)),
+        "",
+    ).label("last_lookup_at")
+    last_import_at_value = func.nullif(
+        func.trim(func.cast(Paper.extra_data["import_metadata"]["last_import_at"].as_string(), String)),
+        "",
+    ).label("last_import_at")
+    last_audit_at_value = latest.c.timestamp.label("last_audit_at")
 
     stmt = (
         select(Paper.id)
@@ -622,6 +763,15 @@ def list_paper_ids(
         column = filter_columns[column_name]
         normalized = _normalize_filter(raw_value)
         condition = _build_audit_condition(column, normalized)
+        if condition is not None:
+            conditions.append(condition)
+
+    presence_filters = {
+        "has_lookup": _presence_condition(last_lookup_at_value, has_lookup),
+        "has_import": _presence_condition(last_import_at_value, has_import),
+        "has_audit": _presence_condition(last_audit_at_value, has_audit),
+    }
+    for condition in presence_filters.values():
         if condition is not None:
             conditions.append(condition)
 
@@ -839,6 +989,7 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
         paper: Paper = mapping[Paper]
         timestamp = mapping.get("timestamp")
         extra_data = paper.extra_data or {}
+        contact_overrides = _get_contact_overrides(paper)
 
         latest_audit_summary = None
         audit_id = mapping.get("audit_id")
@@ -914,12 +1065,17 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
             if isinstance(lookup_value, dict):
                 contact_lookup = lookup_value
         primary_contact = None
+        override_primary = contact_overrides.get("primary_contact")
+        if override_primary:
+            primary_contact = override_primary
         if isinstance(contact_lookup, dict):
             raw_primary = contact_lookup.get("primary_contact")
             if isinstance(raw_primary, str):
-                primary_contact = raw_primary.strip() or None
+                if primary_contact is None:
+                    primary_contact = raw_primary.strip() or None
             elif raw_primary is not None:
-                primary_contact = str(raw_primary).strip() or None
+                if primary_contact is None:
+                    primary_contact = str(raw_primary).strip() or None
 
         social_values: list[str] = []
         if social_platform_headers:
@@ -937,22 +1093,22 @@ def export_papers(payload: schemas.ExportRequest, db: Session = Depends(get_db))
 
         row = [
             paper.id,
-            paper.paper_name or "",
-            paper.city or "",
-            paper.state or "",
-            paper.website_url or "",
-            paper.phone or "",
-            paper.email or "",
+            _contact_value(paper, "paper_name", contact_overrides) or "",
+            _contact_value(paper, "city", contact_overrides) or "",
+            _contact_value(paper, "state", contact_overrides) or "",
+            _contact_value(paper, "website_url", contact_overrides) or "",
+            _contact_value(paper, "phone", contact_overrides) or "",
+            _contact_value(paper, "email", contact_overrides) or "",
             primary_contact or "",
         ]
         if social_values:
             row.extend(social_values)
         row.extend(
             [
-                paper.mailing_address or "",
-                paper.county or "",
-                _publication_frequency_value(paper) or "",
-                display_chain or "",
+                _contact_value(paper, "mailing_address", contact_overrides) or "",
+                _contact_value(paper, "county", contact_overrides) or "",
+                _contact_value(paper, "publication_frequency", contact_overrides) or "",
+                _contact_value(paper, "chain_owner", contact_overrides) or display_chain or "",
                 display_platform or "",
                 display_vendor or "",
                 has_pdf_value or "",
@@ -1116,6 +1272,22 @@ def update_paper(
         else:
             raise HTTPException(status_code=400, detail="audit_overrides must be an object or null")
 
+    if "contact_overrides" in updates:
+        contact_overrides_value = updates["contact_overrides"]
+        if contact_overrides_value is None:
+            _set_contact_overrides(paper, None)
+        elif isinstance(contact_overrides_value, dict):
+            sanitized: dict[str, str] = {}
+            for key, value in contact_overrides_value.items():
+                if key not in CONTACT_OVERRIDE_FIELDS:
+                    continue
+                cleaned = _clean_override_value(value)
+                if cleaned:
+                    sanitized[key] = cleaned
+            _set_contact_overrides(paper, sanitized or None)
+        else:
+            raise HTTPException(status_code=400, detail="contact_overrides must be an object or null")
+
     db.add(paper)
     db.commit()
 
@@ -1183,6 +1355,7 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
             )
 
     latest_summary, override_map = _apply_overrides_to_summary(paper, latest_summary)
+    contact_overrides = _get_contact_overrides(paper)
 
     display_chain = paper.chain_owner
     display_platform = paper.cms_platform
@@ -1199,20 +1372,24 @@ def _fetch_paper_detail(db: Session, paper_id: int) -> schemas.PaperDetail:
 
     return schemas.PaperDetail(
         id=paper.id,
-        state=paper.state,
-        city=paper.city,
-        paper_name=paper.paper_name,
-        website_url=paper.website_url,
-        phone=paper.phone,
-        email=paper.email,
-        mailing_address=paper.mailing_address,
-        county=paper.county,
-        publication_frequency=_publication_frequency_value(paper),
-        chain_owner=display_chain,
+        state=_contact_value(paper, "state", contact_overrides),
+        city=_contact_value(paper, "city", contact_overrides),
+        paper_name=_contact_value(paper, "paper_name", contact_overrides),
+        website_url=_contact_value(paper, "website_url", contact_overrides),
+        phone=_contact_value(paper, "phone", contact_overrides),
+        email=_contact_value(paper, "email", contact_overrides),
+        mailing_address=_contact_value(paper, "mailing_address", contact_overrides),
+        county=_contact_value(paper, "county", contact_overrides),
+        publication_frequency=_contact_value(paper, "publication_frequency", contact_overrides),
+        chain_owner=_contact_value(paper, "chain_owner", contact_overrides) or display_chain,
         cms_platform=display_platform,
         cms_vendor=display_vendor,
         extra_data=paper.extra_data,
         audit_overrides=paper.audit_overrides,
+        contact_overrides=contact_overrides or None,
+        last_lookup_at=_timestamp_from_extra(paper, "contact_lookup", "last_lookup_at"),
+        last_import_at=_timestamp_from_extra(paper, "import_metadata", "last_import_at"),
+        last_audit_at=(latest_summary.timestamp if latest_summary else None),
         latest_audit=latest_summary,
         audits=audit_history,
     )

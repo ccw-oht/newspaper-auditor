@@ -19,7 +19,7 @@ class Paper(Base):
     __tablename__ = "papers"
     id = Column(Integer, primary_key=True, index=True)
     state = Column(String)
-    city = Column(String, nullable=False)
+    city = Column(String)
     paper_name = Column(String, nullable=False)
     website_url = Column(String, index=True)
     phone = Column(String)

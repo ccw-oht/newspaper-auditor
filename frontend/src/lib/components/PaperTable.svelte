@@ -71,6 +71,13 @@ function goToLast() {
     dispatch('sort', { field, order: nextOrder });
   }
 
+  function formatActivity(value: string | null | undefined): string {
+    if (!value) return '—';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString();
+  }
+
   function columnAriaSort(field: string): 'ascending' | 'descending' | 'none' {
     if (field !== sortField) return 'none';
     return sortOrder === 'asc' ? 'ascending' : 'descending';
@@ -369,6 +376,22 @@ function goToLast() {
             {/if}
           </button>
         </th>
+        <th class="sortable" aria-sort={columnAriaSort('last_lookup_at')}>
+          <button type="button" on:click={() => toggleSort('last_lookup_at')}>
+            Last Lookup
+            {#if sortField === 'last_lookup_at'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
+        <th class="sortable" aria-sort={columnAriaSort('last_import_at')}>
+          <button type="button" on:click={() => toggleSort('last_import_at')}>
+            Last Import
+            {#if sortField === 'last_import_at'}
+              <span class="sort-indicator">{sortOrder === 'asc' ? '▲' : '▼'}</span>
+            {/if}
+          </button>
+        </th>
         <th class="sortable audit-summary" aria-sort={columnAriaSort('timestamp')}>
           <button type="button" on:click={() => toggleSort('timestamp')}>
             Last Audit
@@ -384,7 +407,7 @@ function goToLast() {
     <tbody>
       {#if items.length === 0}
         <tr>
-          <td colspan="8" class="empty">No results</td>
+          <td colspan="10" class="empty">No results</td>
         </tr>
       {:else}
         {#each items as item, index}
@@ -505,6 +528,8 @@ function goToLast() {
                 —
               {/if}
             </td>
+            <td title={item.last_lookup_at ?? ''}>{formatActivity(item.last_lookup_at)}</td>
+            <td title={item.last_import_at ?? ''}>{formatActivity(item.last_import_at)}</td>
             <td class="audit-summary">
               <div class="audit-icons" aria-label="Latest audit results">
                 {#each detailFields as field}
@@ -556,7 +581,7 @@ function goToLast() {
           </tr>
           {#if expandedIds.has(item.id) || hoverExpandedId === item.id}
             <tr class="detail-row">
-              <td colspan="8">
+              <td colspan="10">
                 <div class="detail-content" transition:slide={{ duration: 360 }}>
                   <div class="detail-grid">
                     <div class="detail-block">

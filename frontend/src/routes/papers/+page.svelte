@@ -325,6 +325,9 @@
         chain_owner: data.params.chain_owner,
         cms_platform: data.params.cms_platform,
         cms_vendor: data.params.cms_vendor,
+        has_lookup: data.params.has_lookup,
+        has_import: data.params.has_import,
+        has_audit: data.params.has_audit,
         q: data.params.q,
       };
 

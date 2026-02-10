@@ -12,13 +12,13 @@ Automates auditing of newspaper websites, persists results in Postgres, and expo
 - Python 3.11 (optional, if you want to run loaders/CLI outside Docker)
 
 ## Environment Variables
-The backend reads `DATABASE_URL`. When you work outside Docker, point it to the forwarded port:
+The backend reads `DATABASE_URL`. By default it uses local Postgres on `localhost:55432`:
 
 ```bash
 export DATABASE_URL=postgresql://audit_user:audit_pass@localhost:55432/auditdb
 ```
 
-Inside the API container (and the FastAPI codebase) the default `postgresql://audit_user:audit_pass@db:5432/auditdb` is used automatically.
+If you run the API inside Docker, set `DATABASE_URL` explicitly (for example: `postgresql://audit_user:audit_pass@db:5432/auditdb`).
 
 The lookup feature uses Gemini and requires an API key:
 

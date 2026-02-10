@@ -33,6 +33,30 @@ _LOOKUP_NEXT_TIME = 0.0
 _LOOKUP_MAX_ATTEMPTS = int(os.getenv("LOOKUP_MAX_ATTEMPTS", "3"))
 _LOOKUP_BACKOFF_SECONDS = float(os.getenv("LOOKUP_BACKOFF_SECONDS", "1.5"))
 _LOOKUP_BACKOFF_MAX_SECONDS = float(os.getenv("LOOKUP_BACKOFF_MAX_SECONDS", "12"))
+_CONTACT_OVERRIDE_FIELDS = {
+    "state",
+    "city",
+    "paper_name",
+    "website_url",
+    "phone",
+    "email",
+    "mailing_address",
+    "county",
+    "publication_frequency",
+    "chain_owner",
+    "primary_contact",
+}
+_MISSING_SENTINELS = {
+    "unknown",
+    "unk",
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "-",
+    "—",
+    "tbd",
+}
 
 
 class NewsContact(BaseModel):
@@ -40,6 +64,8 @@ class NewsContact(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     mailing_address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
     website: Optional[str] = None
     primary_contact: Optional[str] = None
     chain_owner: Optional[str] = None
@@ -76,6 +102,8 @@ class NewsContact(BaseModel):
         "email",
         "phone",
         "mailing_address",
+        "city",
+        "state",
         "website",
         "wikipedia_link",
         "publication_frequency",
@@ -148,8 +176,39 @@ def _is_missing(value: Optional[str]) -> bool:
     if value is None:
         return True
     if isinstance(value, str):
-        return not value.strip()
+        cleaned = value.strip().lower()
+        return (not cleaned) or (cleaned in _MISSING_SENTINELS)
     return False
+
+
+def _contact_override_map(paper: Paper) -> dict[str, str]:
+    extra = paper.extra_data if isinstance(paper.extra_data, dict) else None
+    if not isinstance(extra, dict):
+        return {}
+    raw = extra.get("contact_overrides")
+    if not isinstance(raw, dict):
+        return {}
+    sanitized: dict[str, str] = {}
+    for key, value in raw.items():
+        if key not in _CONTACT_OVERRIDE_FIELDS:
+            continue
+        if isinstance(value, str):
+            cleaned = value.strip()
+        elif value is None:
+            continue
+        else:
+            cleaned = str(value).strip()
+        if cleaned:
+            sanitized[key] = cleaned
+    return sanitized
+
+
+def _effective_paper_value(paper: Paper, field: str) -> Optional[str]:
+    overrides = _contact_override_map(paper)
+    override_value = overrides.get(field)
+    if override_value:
+        return override_value
+    return getattr(paper, field, None)
 
 
 def _normalize_links(values: List[str]) -> List[str]:
@@ -449,6 +508,198 @@ def _normalize_phone_text(value: Optional[str]) -> Optional[str]:
     return formatted or None
 
 
+_US_STATE_ABBR_TO_NAME = {
+    "AL": "ALABAMA",
+    "AK": "ALASKA",
+    "AZ": "ARIZONA",
+    "AR": "ARKANSAS",
+    "CA": "CALIFORNIA",
+    "CO": "COLORADO",
+    "CT": "CONNECTICUT",
+    "DE": "DELAWARE",
+    "FL": "FLORIDA",
+    "GA": "GEORGIA",
+    "HI": "HAWAII",
+    "ID": "IDAHO",
+    "IL": "ILLINOIS",
+    "IN": "INDIANA",
+    "IA": "IOWA",
+    "KS": "KANSAS",
+    "KY": "KENTUCKY",
+    "LA": "LOUISIANA",
+    "ME": "MAINE",
+    "MD": "MARYLAND",
+    "MA": "MASSACHUSETTS",
+    "MI": "MICHIGAN",
+    "MN": "MINNESOTA",
+    "MS": "MISSISSIPPI",
+    "MO": "MISSOURI",
+    "MT": "MONTANA",
+    "NE": "NEBRASKA",
+    "NV": "NEVADA",
+    "NH": "NEW HAMPSHIRE",
+    "NJ": "NEW JERSEY",
+    "NM": "NEW MEXICO",
+    "NY": "NEW YORK",
+    "NC": "NORTH CAROLINA",
+    "ND": "NORTH DAKOTA",
+    "OH": "OHIO",
+    "OK": "OKLAHOMA",
+    "OR": "OREGON",
+    "PA": "PENNSYLVANIA",
+    "RI": "RHODE ISLAND",
+    "SC": "SOUTH CAROLINA",
+    "SD": "SOUTH DAKOTA",
+    "TN": "TENNESSEE",
+    "TX": "TEXAS",
+    "UT": "UTAH",
+    "VT": "VERMONT",
+    "VA": "VIRGINIA",
+    "WA": "WASHINGTON",
+    "WV": "WEST VIRGINIA",
+    "WI": "WISCONSIN",
+    "WY": "WYOMING",
+    "DC": "DISTRICT OF COLUMBIA",
+}
+_US_STATE_NAME_TO_ABBR = {name: abbr for abbr, name in _US_STATE_ABBR_TO_NAME.items()}
+
+
+def _normalize_state(value: Optional[str]) -> Optional[str]:
+    cleaned = _clean_str(value)
+    if not cleaned:
+        return None
+
+    letters_only = re.sub(r"[^A-Za-z]", "", cleaned)
+    if len(letters_only) == 2:
+        abbr = letters_only.upper()
+        if abbr in _US_STATE_ABBR_TO_NAME:
+            return abbr
+
+    normalized_name = re.sub(r"\s+", " ", cleaned).strip().upper().replace(".", "")
+    return _US_STATE_NAME_TO_ABBR.get(normalized_name)
+
+
+def _extract_city_state_from_address(address: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    cleaned = _clean_str(address)
+    if not cleaned:
+        return None, None
+
+    compact = re.sub(r"\s+", " ", cleaned).strip()
+    compact = re.sub(r",?\s*(united states(?: of america)?)\s*$", "", compact, flags=re.IGNORECASE).strip()
+
+    # Most common format: "... City, ST 12345" (or without zip).
+    abbr_match = re.search(
+        r"(?P<city>[A-Za-z][A-Za-z\s.\-']+),\s*(?P<state>[A-Za-z]{2}\.?)(?:\s*,?\s*\d{5}(?:-\d{4})?)?\s*$",
+        compact,
+    )
+    if abbr_match:
+        city = _clean_str(abbr_match.group("city"))
+        state = _normalize_state(abbr_match.group("state"))
+        city = _strip_street_prefix_from_city(city)
+        return city, state
+
+    # Alternate format with full state names.
+    state_names = "|".join(sorted(_US_STATE_NAME_TO_ABBR.keys(), key=len, reverse=True))
+    full_match = re.search(
+        rf"(?P<city>[A-Za-z][A-Za-z\s.\-']+),\s*(?P<state>{state_names})(?:\s+\d{{5}}(?:-\d{{4}})?)?\s*$",
+        compact,
+        flags=re.IGNORECASE,
+    )
+    if full_match:
+        city = _clean_str(full_match.group("city"))
+        state = _normalize_state(full_match.group("state"))
+        city = _strip_street_prefix_from_city(city)
+        return city, state
+
+    # No-comma style: "... City ST 12345"
+    trailing_state_match = re.search(
+        r"(?P<prefix>.+?)\s+(?P<state>[A-Za-z]{2}\.?|[A-Za-z]{1,2}\.[A-Za-z]{1,2}\.)\s*,?\s*(?P<zip>\d{5}(?:-\d{4})?)\s*$",
+        compact,
+    )
+    if trailing_state_match:
+        prefix = trailing_state_match.group("prefix").strip().rstrip(",")
+        state = _normalize_state(trailing_state_match.group("state"))
+        if prefix:
+            # Prefer last comma-delimited segment as city if available.
+            if "," in prefix:
+                segments = [seg.strip() for seg in prefix.split(",") if seg.strip()]
+                city_candidate = segments[-1] if segments else prefix
+            else:
+                city_candidate = prefix
+            city = _strip_street_prefix_from_city(city_candidate)
+            if city:
+                return city, state
+
+    return None, None
+
+
+def _strip_street_prefix_from_city(value: Optional[str]) -> Optional[str]:
+    city = _clean_str(value)
+    if not city:
+        return None
+
+    # Handles forms like "17 Pleasant Street Clifton Springs" by stripping
+    # likely street-address prefixes and keeping trailing city tokens.
+    tokens = city.split()
+    if len(tokens) <= 1:
+        return city
+
+    street_markers = {
+        "st",
+        "street",
+        "ave",
+        "avenue",
+        "rd",
+        "road",
+        "dr",
+        "drive",
+        "ln",
+        "lane",
+        "blvd",
+        "boulevard",
+        "ct",
+        "court",
+        "cir",
+        "circle",
+        "way",
+        "pl",
+        "place",
+        "ter",
+        "terrace",
+        "pkwy",
+        "parkway",
+        "hwy",
+        "highway",
+        "route",
+        "rt",
+        "box",
+        "suite",
+        "ste",
+        "unit",
+        "apt",
+        "apartment",
+        "#",
+    }
+
+    split_index = -1
+    for idx, token in enumerate(tokens[:-1]):
+        normalized = re.sub(r"[^a-z]", "", token.lower())
+        if normalized in street_markers:
+            split_index = idx
+
+    if split_index >= 0 and split_index < len(tokens) - 1:
+        trimmed = " ".join(tokens[split_index + 1 :]).strip()
+        city = _clean_str(trimmed) or city
+
+    # Remove leading numbers and punctuation that may remain after PO Box/street stripping.
+    city = re.sub(r"^[\d\W_]+", "", city).strip()
+    city = re.sub(r"^\d+\s+", "", city).strip()
+    city = re.sub(r"\s+", " ", city).strip()
+    if not city:
+        return None
+    return city
+
+
 def _usage_metadata_dict(usage: Any) -> dict[str, Any]:
     if usage is None:
         return {}
@@ -474,25 +725,34 @@ def _coerce_query_list(value: Any) -> list[str]:
         return [str(item).strip() for item in value if str(item).strip()]
     return [str(value).strip()] if str(value).strip() else []
 def _build_prompt(paper: Paper) -> str:
+    effective_name = _effective_paper_value(paper, "paper_name") or paper.paper_name
+    effective_city = _effective_paper_value(paper, "city") or paper.city
+    effective_state = _effective_paper_value(paper, "state") or paper.state
+    effective_website = _effective_paper_value(paper, "website_url") or paper.website_url
+    effective_phone = _effective_paper_value(paper, "phone") or paper.phone
+    effective_email = _effective_paper_value(paper, "email") or paper.email
+    effective_mailing = _effective_paper_value(paper, "mailing_address") or paper.mailing_address
+    effective_county = _effective_paper_value(paper, "county") or paper.county
+
     parts = [
-        f"Newspaper name: {paper.paper_name}",
-        f"City: {paper.city or 'Unknown'}",
-        f"State: {paper.state or 'Unknown'}",
+        f"Newspaper name: {effective_name}",
+        f"City: {effective_city or 'Unknown'}",
+        f"State: {effective_state or 'Unknown'}",
     ]
-    if paper.website_url:
-        parts.append(f"Website: {paper.website_url}")
-    if paper.phone:
-        parts.append(f"Existing phone: {paper.phone}")
-    if paper.email:
-        parts.append(f"Existing email: {paper.email}")
-    if paper.mailing_address:
-        parts.append(f"Existing mailing address: {paper.mailing_address}")
-    if paper.county:
-        parts.append(f"County: {paper.county}")
+    if effective_website:
+        parts.append(f"Website: {effective_website}")
+    if effective_phone:
+        parts.append(f"Existing phone: {effective_phone}")
+    if effective_email:
+        parts.append(f"Existing email: {effective_email}")
+    if effective_mailing:
+        parts.append(f"Existing mailing address: {effective_mailing}")
+    if effective_county:
+        parts.append(f"County: {effective_county}")
     details = "\n".join(parts)
     return (
         "Find the official contact info for the newspaper listed below. "
-        "Return JSON with keys: name, email, phone, mailing_address, website, primary_contact, chain_owner, county, publication_frequency, "
+        "Return JSON with keys: name, email, phone, mailing_address, city, state, website, primary_contact, chain_owner, county, publication_frequency, "
         "wikipedia_link, social_media_links, and relevant source_links, . Use null for unknown values. "
         "For source_links, include only human-accessible public URLs (official site pages, press association listings, newsroom contact pages). "
         "For social_media_links, include ONLY the MOST RELEVANT official social media profile URL only — one for each found platform, and exclude associated chain/group or parent company pages. "
@@ -651,23 +911,43 @@ def _lookup_paper_contact(
     contact, logs = _fetch_contact(paper, throttle=throttle)
     usage = getattr(contact, "_usage_metadata", None)
     queries = getattr(contact, "_web_search_queries", None)
+    overrides = _contact_override_map(paper)
 
     updates: Dict[str, Optional[str]] = {}
-    if _is_missing(paper.phone) and contact.phone:
-        updates["phone"] = _normalize_phone_text(contact.phone)
-    if _is_missing(paper.email) and contact.email:
-        updates["email"] = _clean_str(contact.email)
-    if _is_missing(paper.mailing_address) and contact.mailing_address:
-        updates["mailing_address"] = _clean_str(contact.mailing_address)
-    if _is_missing(paper.website_url) and contact.website:
-        updates["website_url"] = _clean_str(contact.website)
-    if contact.publication_frequency:
-        updates["publication_frequency"] = _clean_str(contact.publication_frequency)
-    chain_owner_value = _clean_str(contact.chain_owner)
-    if chain_owner_value is not None:
-        updates["chain_owner"] = chain_owner_value
-    if _is_missing(paper.county) and contact.county:
-        updates["county"] = _clean_str(contact.county)
+    candidate_updates: Dict[str, Optional[str]] = {}
+    skipped_updates: Dict[str, Optional[str]] = {}
+
+    def _consider_update(field: str, value: Optional[str], *, only_if_missing: bool = True) -> None:
+        cleaned = _clean_str(value)
+        if cleaned is None:
+            return
+        candidate_updates[field] = cleaned
+        if field in overrides:
+            skipped_updates[field] = cleaned
+            return
+        current_value = getattr(paper, field, None)
+        if not only_if_missing or _is_missing(current_value):
+            updates[field] = cleaned
+        else:
+            skipped_updates[field] = cleaned
+
+    _consider_update("phone", _normalize_phone_text(contact.phone), only_if_missing=True)
+    _consider_update("email", contact.email, only_if_missing=True)
+    mailing_address_value = _clean_str(contact.mailing_address)
+    _consider_update("mailing_address", mailing_address_value, only_if_missing=True)
+    _consider_update("website_url", contact.website, only_if_missing=True)
+    _consider_update("publication_frequency", contact.publication_frequency, only_if_missing=True)
+    _consider_update("chain_owner", contact.chain_owner, only_if_missing=True)
+    _consider_update("county", contact.county, only_if_missing=True)
+
+    city_value = _clean_str(contact.city)
+    state_value = _normalize_state(contact.state)
+    address_for_derivation = mailing_address_value or _clean_str(paper.mailing_address)
+    derived_city, derived_state = _extract_city_state_from_address(address_for_derivation)
+    final_city = city_value or derived_city
+    final_state = state_value or derived_state
+    _consider_update("city", final_city, only_if_missing=True)
+    _consider_update("state", final_state, only_if_missing=True)
 
     source_social, source_links = _partition_social_links(contact.source_links or [])
     existing_lookup = paper.extra_data.get("contact_lookup") if isinstance(paper.extra_data, dict) else None
@@ -698,6 +978,14 @@ def _lookup_paper_contact(
         "phone": _normalize_phone_text(contact.phone),
         "email": _clean_str(contact.email),
         "mailing_address": _clean_str(contact.mailing_address),
+        "city": _clean_str(contact.city),
+        "state": _normalize_state(contact.state),
+        "derived_city": derived_city,
+        "derived_state": derived_state,
+        "candidate_updates": candidate_updates,
+        "applied_updates": updates,
+        "skipped_updates": skipped_updates,
+        "override_locked_fields": sorted(overrides.keys()),
     }
     if logs:
         metadata["logs"] = logs

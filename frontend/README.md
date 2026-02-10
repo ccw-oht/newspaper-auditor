@@ -10,14 +10,14 @@ npm install
 npm run dev
 ```
 
-The dev server runs on <http://localhost:5173>. By default, API requests proxy to `http://localhost:18080` (matching the Docker compose mapping). Adjust `VITE_API_BASE_URL` or the proxy in `vite.config.ts` if your backend uses a different host/port.
+The dev server runs on <http://localhost:5173>. By default, API requests proxy to `http://localhost:8000` (matching `make dev-backend`). Adjust `VITE_API_BASE_URL` or the proxy in `vite.config.ts` if your backend uses a different host/port.
 
 ## Environment Variables
 
 Create a `.env` file in `frontend/` if you need to point at a different API:
 
 ```ini
-PUBLIC_API_BASE_URL=http://localhost:18080
+PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
 The proxy handles `/api/*` routes in dev. In production, the client uses `PUBLIC_API_BASE_URL` to hit the FastAPI service directly.

@@ -1,4 +1,4 @@
-.PHONY: help dev-backend dev-frontend dev-worker compose-up compose-down compose-down-clean ingest install frontend-install migrate-email migrate-publication-frequency migrate-jobs migrate-job-items-fk db-shell
+.PHONY: help dev-backend dev-frontend dev-worker compose-up compose-down compose-down-clean wait-db ingest install frontend-install migrate-email migrate-publication-frequency migrate-jobs migrate-job-items-fk db-shell
 
 -include .env
 export
@@ -13,6 +13,7 @@ help:
 	@echo "  migrate-publication-frequency - Add the publication_frequency column to papers"
 	@echo "  migrate-jobs - Add job queue tables"
 	@echo "  migrate-job-items-fk - Add job_items.paper_id foreign key"
+	@echo "  wait-db      - Block until Postgres is accepting connections"
 	@echo "  db-shell     - Open a psql shell in the Postgres container"
 	@echo "  ingest       - Example: make ingest CSV=path/to/file.csv"
 
@@ -36,13 +37,20 @@ install: $(VENV)/bin/activate requirements.txt
 compose-up:
 	cd docker && docker compose up -d
 
+wait-db:
+	@echo "Waiting for Postgres to be ready on localhost:55432..."
+	@until docker compose -f docker/docker-compose.yml exec -T db pg_isready -U audit_user -d auditdb >/dev/null 2>&1; do \
+		sleep 1; \
+	done
+	@echo "Postgres is ready."
+
 compose-down:
 	cd docker && docker compose down
 
 compose-down-clean:
 	cd docker && docker compose down -v
 
-dev-backend: install
+dev-backend: compose-up wait-db install
 	. $(VENV)/bin/activate && $(UVICORN) backend.app:app --reload --host 0.0.0.0 --port 8000
 
 dev-worker: install

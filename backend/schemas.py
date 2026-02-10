@@ -106,6 +106,10 @@ class PaperSummary(BaseModel):
     cms_vendor: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
     audit_overrides: Optional[Dict[str, Any]] = None
+    contact_overrides: Optional[Dict[str, Any]] = None
+    last_lookup_at: Optional[str] = None
+    last_import_at: Optional[str] = None
+    last_audit_at: Optional[datetime] = None
     latest_audit: Optional[AuditSummary] = None
 
 
@@ -143,6 +147,11 @@ class PaperDetail(BaseModel):
     cms_platform: Optional[str] = None
     cms_vendor: Optional[str] = None
     extra_data: Optional[Dict[str, Any]] = None
+    audit_overrides: Optional[Dict[str, Any]] = None
+    contact_overrides: Optional[Dict[str, Any]] = None
+    last_lookup_at: Optional[str] = None
+    last_import_at: Optional[str] = None
+    last_audit_at: Optional[datetime] = None
     latest_audit: Optional[AuditSummary] = None
     audits: List[AuditOut] = Field(default_factory=list)
 
@@ -162,6 +171,7 @@ class PaperUpdate(BaseModel):
     cms_vendor: Optional[str] = Field(default=None)
     extra_data: Optional[Dict[str, Any]] = Field(default=None)
     audit_overrides: Optional[Dict[str, Any]] = Field(default=None)
+    contact_overrides: Optional[Dict[str, Any]] = Field(default=None)
 
 
 class ImportPreviewRow(BaseModel):
