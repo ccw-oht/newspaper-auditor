@@ -27,15 +27,32 @@ def _summarize_job(db: Session, job: Job) -> None:
         .scalar()
         or 0
     )
+    completed = (
+        db.query(func.count(JobItem.id))
+        .filter(JobItem.job_id == job.id, JobItem.status == "completed")
+        .scalar()
+        or 0
+    )
     failed = (
         db.query(func.count(JobItem.id))
         .filter(JobItem.job_id == job.id, JobItem.status == "failed")
         .scalar()
         or 0
     )
-    succeeded = processed - failed if processed >= failed else 0
+    canceled = (
+        db.query(func.count(JobItem.id))
+        .filter(JobItem.job_id == job.id, JobItem.status == "canceled")
+        .scalar()
+        or 0
+    )
     job.processed_count = processed
-    job.result_summary = {"total": total, "processed": processed, "succeeded": succeeded, "failed": failed}
+    job.result_summary = {
+        "total": total,
+        "processed": processed,
+        "succeeded": completed,
+        "failed": failed,
+        "canceled": canceled,
+    }
     if failed:
         job.error = f"{failed} item{'' if failed == 1 else 's'} failed"
     else:

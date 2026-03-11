@@ -1,12 +1,14 @@
-.PHONY: help dev-backend dev-frontend dev-worker compose-up compose-down compose-down-clean wait-db ingest install frontend-install migrate-email migrate-publication-frequency migrate-jobs migrate-job-items-fk db-shell
+.PHONY: help dev dev-backend dev-frontend dev-worker compose-up compose-down compose-down-clean wait-db ingest install frontend-install migrate-email migrate-publication-frequency migrate-jobs migrate-job-items-fk db-shell
 
 -include .env
 export
 
 help:
 	@echo "Available targets:"
+	@echo "  dev          - Start backend, worker, and frontend together"
 	@echo "  dev-backend  - Run FastAPI app with hot reload"
 	@echo "  dev-frontend - Run frontend dev server (SvelteKit)"
+	@echo "  dev-worker   - Run background job worker"
 	@echo "  compose-up   - Start Postgres via docker compose"
 	@echo "  compose-down - Stop Postgres and remove containers"
 	@echo "  migrate-email - Add the email column to papers"
@@ -27,6 +29,7 @@ UVICORN ?= uvicorn
 FRONTEND_DIR ?= frontend
 NPM ?= npm
 FRONTEND_STAMP ?= $(FRONTEND_DIR)/node_modules/.install-complete
+DEV_SCRIPT ?= scripts/dev.sh
 
 $(VENV)/bin/activate:
 	$(PYTHON) -m venv $(VENV)
@@ -49,6 +52,9 @@ compose-down:
 
 compose-down-clean:
 	cd docker && docker compose down -v
+
+dev: compose-up wait-db install frontend-install
+	$(DEV_SCRIPT)
 
 dev-backend: compose-up wait-db install
 	. $(VENV)/bin/activate && $(UVICORN) backend.app:app --reload --host 0.0.0.0 --port 8000

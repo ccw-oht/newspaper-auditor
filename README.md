@@ -27,7 +27,58 @@ export GEMINI_API_KEY=your_key_here
 ```
 
 ## Running the Stack
-Only Postgres runs in Docker; the FastAPI backend runs locally with hot reload.
+Only Postgres runs in Docker; the FastAPI backend, background worker, and frontend run locally.
+
+### One-command local dev
+
+```bash
+make dev
+```
+
+This starts:
+- Postgres in Docker
+- FastAPI on `http://localhost:8000`
+- The background job worker
+- The frontend on `http://localhost:5173`
+
+This is the recommended local workflow because audits and lookups triggered from the UI are queued background jobs. If the worker is not running, a new audit will stay queued and appear to do nothing.
+
+### Cleaning up local processes
+
+If you have multiple terminal tabs open, it is easy to leave old backend or frontend dev servers running and then hit port conflicts the next time you start work in this repo.
+
+Check what is listening on the common local ports:
+
+```bash
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+lsof -nP -iTCP:5173 -sTCP:LISTEN
+lsof -nP -iTCP:55432 -sTCP:LISTEN
+```
+
+Typical meanings in this project:
+- `8000` – FastAPI backend
+- `5173` – Svelte/Vite frontend
+- `55432` – Postgres from Docker
+
+To stop a local dev server by PID:
+
+```bash
+kill <pid>
+```
+
+If it does not exit cleanly:
+
+```bash
+kill -9 <pid>
+```
+
+For Docker-managed Postgres, prefer stopping it cleanly with:
+
+```bash
+make compose-down
+```
+
+If `make dev` reports that `:8000` or `:5173` is already in use, run the `lsof` commands above first and clear out the older process before starting again.
 
 ### Start / Stop Postgres
 - **Start**
@@ -59,6 +110,16 @@ make db-shell
    ```
 
 The API listens on `http://localhost:8000` and reloads whenever files under `backend/` change.
+
+### Background Worker
+
+Run this in a separate terminal if you are not using `make dev`:
+
+```bash
+make dev-worker
+```
+
+The frontend queues audits and lookups through `/jobs/*`; the worker is what actually executes them.
 
 ### Frontend Dev Server
 From the project root:
@@ -122,6 +183,7 @@ The audit script now includes automatic browser automation fallback for websites
 - If a request fails with HTTP 403 (Forbidden) or the domain is known to have anti-bot protection, it automatically falls back to browser automation
 - Browser automation uses stealth mode to avoid detection
 - Known protected domains (McClatchy sites) automatically use browser automation
+- Do not enable `AUDIT_PLAYWRIGHT_ONLY=1` for normal local work unless you are actively debugging fetch behavior. That flag forces browser automation for every site and makes audits slower and more fragile.
 
 **Known protected domains:**
 - McClatchy newspaper sites (miamiherald.com, sacbee.com, kansascity.com, etc.)
