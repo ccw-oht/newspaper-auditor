@@ -29,6 +29,10 @@ const dispatch = createEventDispatcher<{
     sort: { field: string; order: 'asc' | 'desc' };
   }>();
 
+function canAudit(item: PaperSummary): boolean {
+  return typeof item.website_url === 'string' && item.website_url.trim().length > 0;
+}
+
 $: safeLimit = limit > 0 ? limit : 1;
 $: totalPages = Math.max(1, Math.ceil(total / safeLimit));
 $: currentPage = Math.floor(offset / safeLimit) + 1;
@@ -553,7 +557,8 @@ function goToLast() {
                 <button
                   type="button"
                   class={hasFailedAudit(item) ? 'failed' : ''}
-                  disabled={loading}
+                  disabled={loading || !canAudit(item)}
+                  title={canAudit(item) ? undefined : 'Add a website URL before running an audit.'}
                   on:click={() => dispatch('audit', { id: item.id, name: item.paper_name ?? `Paper ${item.id}` })}
                 >
                   Audit

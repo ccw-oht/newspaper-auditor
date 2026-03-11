@@ -10,6 +10,10 @@ from ..models import Audit, Paper
 from . import lookup_service
 
 
+class MissingWebsiteUrlError(ValueError):
+    pass
+
+
 def _should_update_metadata(current: str | None, new_value: str | None) -> bool:
     if new_value is None:
         return False
@@ -73,6 +77,8 @@ def _apply_audit_social_links(paper: Paper, results: dict[str, str | None]) -> N
 
 
 def _run_audit_or_timeout(paper: Paper) -> tuple[dict[str, str | None] | None, Optional[str]]:
+    if not isinstance(paper.website_url, str) or not paper.website_url.strip():
+        raise MissingWebsiteUrlError(f"Paper {paper.id} is missing a website URL")
     try:
         return run_audit(paper.website_url), None
     except HomepageFetchTimeoutError as exc:

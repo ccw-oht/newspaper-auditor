@@ -38,7 +38,10 @@ def audit_batch(payload: schemas.AuditBatchRequest, db: Session = Depends(get_db
     audits: list[Audit] = []
     for paper_id in payload.ids:
         paper = papers[paper_id]
-        audit, results, _error_note = audit_service.perform_audit(db, paper)
+        try:
+            audit, results, _error_note = audit_service.perform_audit(db, paper)
+        except audit_service.MissingWebsiteUrlError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         audits.append(audit)
 
     db.commit()
@@ -78,5 +81,8 @@ def audit_one(paper_id: int, db: Session = Depends(get_db)):
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
 
-    audit, _results, _error_note = audit_service.perform_audit(db, paper)
+    try:
+        audit, _results, _error_note = audit_service.perform_audit(db, paper)
+    except audit_service.MissingWebsiteUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return audit

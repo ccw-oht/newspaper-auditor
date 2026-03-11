@@ -116,7 +116,8 @@
       showToast(`Queued audit for ${event.detail.name}.`);
     } catch (error) {
       console.error(error);
-      window.alert('Failed to re-run audit. Check console for details.');
+      const message = error instanceof Error ? error.message : 'Failed to re-run audit.';
+      window.alert(message);
     } finally {
       loading = false;
     }
@@ -209,7 +210,8 @@
       deleteError = null;
     } catch (error) {
       console.error(error);
-      window.alert('Failed to run batch audit. Check console for details.');
+      const message = error instanceof Error ? error.message : 'Failed to run batch audit.';
+      window.alert(message);
     } finally {
       loading = false;
     }

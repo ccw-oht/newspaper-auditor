@@ -33,6 +33,13 @@
   let primaryContact = '';
   let socialMediaText = '';
 
+  function hasWebsiteUrl(value: string | null | undefined): boolean {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  $: canRunAudit = hasWebsiteUrl(paper.website_url);
+  $: auditUnavailableMessage = canRunAudit ? null : 'Add a website URL before running an audit.';
+
   $: selectedAudit = paper.audits.find((audit) => audit.id === selectedAuditId) ?? paper.audits[0] ?? null;
 
   $: currentAudit = (() => {
@@ -338,13 +345,18 @@
   }
 
   async function rerunAudit() {
+    if (!canRunAudit) {
+      window.alert(auditUnavailableMessage);
+      return;
+    }
     try {
       auditing = true;
       await enqueueAuditJob([paper.id]);
       showToast(`Queued audit for ${paper.paper_name ?? `Paper ${paper.id}`}.`);
     } catch (error) {
       console.error(error);
-      window.alert('Failed to re-run audit');
+      const message = error instanceof Error ? error.message : 'Failed to re-run audit.';
+      window.alert(message);
     } finally {
       auditing = false;
     }
@@ -539,7 +551,13 @@
       </p>
     </div>
     <div class="header-actions">
-      <button class={`audit${hasFailedAudit() ? ' failed' : ''}`} type="button" disabled={auditing} on:click={rerunAudit}>
+      <button
+        class={`audit${hasFailedAudit() ? ' failed' : ''}`}
+        type="button"
+        disabled={auditing || !canRunAudit}
+        title={auditUnavailableMessage ?? undefined}
+        on:click={rerunAudit}
+      >
         {auditing ? 'Running…' : 'Re-run audit'}
       </button>
       <button
